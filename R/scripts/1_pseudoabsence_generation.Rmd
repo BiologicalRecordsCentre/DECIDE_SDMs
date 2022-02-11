@@ -1,0 +1,188 @@
+---
+title: "Pseudoabsence generation"
+author: "Simon Rolph"
+date: "10/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+#file.path()
+
+# Simon computer
+#setwd("~/R/DECIDE_SDMs")
+
+#JASMIN
+#setwd("~/R/DECIDE_SDMs")
+
+#Datalabs
+
+
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+library(parallel)
+n.cores <- detectCores()
+n.cores
+
+source("R/functions/cpa.R") #function for generating absences
+
+
+```
+
+```{r}
+#load in the ecological traits data
+#https://catalogue.ceh.ac.uk/documents/5b5a13b6-2304-47e3-9c9d-35237d1232c6
+ecological_traits <- read_csv("data/raw_data/traits/butterfly_moth_ecological_traits.csv", 
+    skip = 1)
+
+#create phenology data in long format
+phenology <- ecological_traits %>% select(
+  scientific_name,
+  jan = ad_jan,
+  feb = ad_feb,
+  mar = ad_mar,
+  apr = ad_apr,
+  may = ad_may,
+  jun = ad_jun,
+  jul = ad_jul,
+  aug = ad_agu, # note renaming here to be inline with tolower(month.abb)
+  sep = ad_sep,
+  oct = ad_oct,
+  nov = ad_nov,
+  dec = ad_dec) %>% 
+  pivot_longer(-scientific_name,names_to = "month") %>%
+  mutate(value = if_else(value == 1,T,F,missing = F))
+
+phenology <- phenology %>% mutate(month_num = match(month, tolower(month.abb)))
+
+
+#phenology %>% filter(scientific_name == "Paranthrene tabaniformis")
+
+
+```
+
+
+Generate some test data
+
+```{r}
+if(F){
+  #generate pseudo absences
+  test_species <- unique(phenology$scientific_name)[1:50]
+  n_records <- 500000
+  
+  #species data for all species for all year round
+  all_spdata <- data.frame(
+    id = 1:n_records,
+    species = sample(test_species,n_records,T),
+    lat = sample(1:100,n_records,T),
+    lon = sample(1:100,n_records,T),
+    date = sample(seq(as.Date('2001/01/01'), as.Date('2020/01/01'), by="day"), n_records,T),
+    group = rep("butterfly",n_records)
+    )
+  
+  #get month as a number (1-12)
+  all_spdata <- all_spdata %>% mutate(month = as.numeric(as.factor(months(date))))
+  
+  #str(all_spdata)
+  #cpa(spdat,test_species[1],100,F,5,T)
+  #species trends through the year
+  # all_spdata %>% 
+  #   group_by(species,month) %>%
+  #   summarise(n = n()) %>%
+  #   ggplot(aes(x = month,y = n,colour =species))+geom_line()+theme_bw()
+}
+```
+
+Load real data
+```{r}
+#load in the data (pre-processed)
+butterfly_records <- read_csv("data/derived_data/species/butterfly/records/butterfly_EastNorths_no_duplicates_2021_12_06.csv")
+day_moth_records <- read_csv("data/derived_data/species/day_flying_moth/records/DayFlyingMoths_EastNorths_no_duplicates.csv")
+
+# add a new column to differentiate the groups
+butterfly_records$group <- "butterfly"
+day_moth_records$group <- "day_flying_moth"
+
+#make into one big dataframe
+#select relevant columns ready for cpa function
+all_spdata <- bind_rows(butterfly_records,day_moth_records) %>% 
+  select(id = TO_ID,
+         species = sp_n,
+         lat = lat,
+         lon = lon,
+         date = date,
+         group = group) %>%
+  mutate(month = as.numeric(as.factor(months(date))))
+
+
+
+
+#view the dataframe
+str(all_spdata)
+```
+
+Generate phenologically-aware targeted pseudo-absences
+
+```{r}
+#function for generating psuedo absences ("pas")
+#loads data from environment
+generate_pas <- function(sci_name){
+  #get the phenology from the phenology data fraome
+  #eg:
+  #[1] 4 5 6 7 8 9
+  species_phenology <- phenology %>% 
+    filter(sci_name == scientific_name, value) %>% 
+    pull(month_num)
+  
+  #get the species group ("butterfly" or "day_flying_moth" eor "ngiht_flying_moth" etc.)
+  species_group <- all_spdata %>% 
+    filter(species == sci_name) %>% 
+    pull(group) %>% 
+    unique()
+  
+  # all data recorded in the main activity season of the species AND species records of the target species from outside their main recording activity
+  relevant_data <- all_spdata %>% 
+    filter(group == species_group) %>%
+    filter(month %in% species_phenology | species == sci_name )
+  
+  pas <- cpa(spdat = relevant_data,
+             species = sci_name,
+             nAbs = 10000,
+             matchPres = F,
+             recThresh = 5,
+             replace = T)
+
+  pas
+}
+
+#generate pas for a single species
+test <- generate_pas("Pieris brassicae")
+
+#generate pas for a set of species
+species <- unique(all_spdata$species)[1:10]
+
+# use lapply
+#basically seems to run in a loop but it works fine
+pas <- lapply(as.list(species),FUN = generate_pas)
+
+# in parallel using parLapply
+clust <- makeCluster(n.cores-1)
+clusterExport(clust, c("phenology","all_spdata","%>%","cpa","setdiff","filter","pull"))
+pas <- parLapply(clust, as.list(species), generate_pas)
+
+
+saveRDS(pas)
+
+```
+
+
+
+
+
