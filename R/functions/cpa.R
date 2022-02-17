@@ -8,8 +8,6 @@
 cpa <- function (spdat, species,nAbs, matchPres = FALSE,recThresh = 0, replace = F,incPres=F) {
   print(paste0("Generating ",nAbs," pseudo absences for ",species))
   
-  "%!in%" <- Negate("%in%")
-  
   #filter data by year and species
   dat <- spdat
   pres <- dat[dat$species == species, c("lon", "lat")]
@@ -40,12 +38,16 @@ cpa <- function (spdat, species,nAbs, matchPres = FALSE,recThresh = 0, replace =
     warning(paste0("For ",species,", more presences than possible locations for absences. Consider lowering the number of pseudo absences."))
   }
   
+  #if there are more precences than defined nAbs (eg. 10k), and matchPres ==T
+  # then set nAbs to the number of presences
+  # however if the number of possible locations is smaller than the number of presences then 
+  if (matchPres == TRUE){
+    nAbs <- max(nAbs,nrow(pres))
+    nAbs <- min(nAbs,nrow(pres_other_species))
+  }
+  
   #sample of the row numbers
   sampInd <- sample(1:nrow(pres_other_species), nAbs, replace = replace)
-
-  if (matchPres == TRUE) {
-    sampInd <- sampInd[1:nrow(pres)]
-  }
 
   #create the absences by selecting the rows numbers that we sampled
   abs <- pres_other_species[sampInd, ]

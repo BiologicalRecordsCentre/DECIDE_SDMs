@@ -9,3 +9,279 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+```{r}
+library(rslurm)
+library(dplyr)
+library(raster)
+library(terra)
+library(randomForest)
+library(mgcv)
+
+library(dismo)
+
+```
+
+###Load data
+
+```{r load_data}
+#records and pseudoabsences
+pas <- readRDS("~/R/DECIDE_SDMs/data/derived_data/species/pas.RDS")
+
+#species list
+species_list <- readRDS("~/R/DECIDE_SDMs/data/derived_data/species/species_list.RDS")
+
+#environmental data
+env_dat <- raster::stack("data/derived_data/environmental/envdata_fixedcoasts_nocorrs_100m_GB.gri")
+#env_dat <- terra::rast(env_dat)
+
+
+```
+
+### Preparing data
+
+Combine the pres/pseudoabsence with the environmental data to make one data frame that we'll be fitting models to.
+
+```{r}
+prepare_data <- function(species_name, pas, env_data){
+
+  #get the presence/absence for the relvant species
+  pas_species <- pas[[species_name]]
+  pas_species$Presence <- pas_species$Presence[1:1000,] %>% as.data.frame()
+  pas_species$pseudoAbsence <- pas_species$pseudoAbsence[1:1000,] %>% as.data.frame()
+
+  #extract environmental variables
+  env_data <- terra::rast(env_data)
+  pres <- data.frame(val = 1,terra::extract(x = env_data, y = pas_species$Presence[,c("lon","lat")]), pas_species$Presence[,c("lon","lat")])
+  ab <- data.frame(val = 0, terra::extract(x = env_data, y = pas_species$pseudoAbsence[,c("lon","lat")]), pas_species$pseudoAbsence[,c("lon","lat")])
+
+  pres_and_ab <- bind_rows(pres,ab)
+
+  pres_and_ab
+}
+
+prepared_data <- prepare_data("pieris_brassicae",pas,env_dat)
+head(prepared_data)
+
+#there are some NAs
+sum(is.na(prepared_data))
+
+```
+
+Define the folds in the data
+
+```{r}
+
+fold_data <- function(prepared_data){
+  prepared_data$fold[prepared_data$val==1] <- prepared_data %>% filter(val == 1) %>% kfold(10)
+  prepared_data$fold[prepared_data$val==0] <- prepared_data %>% filter(val == 0) %>% kfold(10)
+  prepared_data
+}
+
+head(fold_data(prepared_data))
+
+```
+
+Determine weightings
+
+if unbalanced number of records vs pseudo-absences the  provide some weighting information. Used for GLM, RF and GAM.
+
+```{r}
+
+determine_weights <- function(folded_data,fold_i){
+  n_records <- folded_data %>% filter(val == 1,fold != fold_i) %>% nrow()
+  n_abs <- folded_data %>% filter(val == 0,fold != fold_i) %>% nrow()
+    
+  prop <- n_records / n_abs
+  
+  #if unbalanced
+  if (n_records != n_abs){
+    weights <- c(rep(1, n_records), rep(prop, n_abs))
+  } else {
+    weights <- NULL
+  }
+  
+  weights
+}
+
+determine_weights(folded_data,1)
+
+```
+
+### Fitting models
+
+Models:
+
+ - GLM (`base`?)
+ - GAM (`mgcv`)
+ - Random forest (`randomForest`)
+ - Maxent (`dismo`)
+
+#### Maxent
+
+Maxent models work best with equal number of presences and absences, so should match the number of presences and absences
+
+```{r}
+fit_maxent <- function(folded_data,fold_i,env_data){
+  options(java.parameters = "-Xmx3g") #https://stackoverflow.com/questions/5374455/what-does-java-option-xmx-stand-for
+  
+  #fit the model
+  mod <- maxent(x = env_data, 
+                p = folded_data %>% filter(val == 1, fold != fold_i) %>% dplyr::select(lon,lat), 
+                a = (folded_data %>% filter(val == 0, fold != fold_i) %>% dplyr::select(lon,lat))
+                )
+  
+  #evaludate the model
+  evaluation <- dismo::evaluate(p = folded_data %>% filter(val == 1, fold == fold_i) %>% dplyr::select(lon,lat), 
+                            a = folded_data %>% filter(val == 0, fold == fold_i) %>% dplyr::select(lon,lat), 
+                            x = env_data,
+                            mod, tr = seq(0, 1, length.out = 200))
+  
+  #return the model + evaludation
+  return(list(mod,evaluation))
+}
+
+#test the function
+folded_data <- fold_data(prepared_data)
+test <- fit_maxent(folded_data,1,env_dat)
+
+```
+
+#### GLM
+
+Fit a GLM using `glm()`
+
+```{r}
+
+fit_glm <- function(folded_data,fold_i){
+  
+  weights <- determine_weights(folded_data,fold_i)
+  train_data <- folded_data %>% filter(fold != fold_i) %>% dplyr::select(-lat,-lon,-fold,-ID)
+  test_data <- folded_data %>% filter(fold == fold_i) %>% dplyr::select(-lat,-lon,-fold,-ID)
+  
+  mod <- glm(val ~ ., data = train_data, 
+                   family = binomial(link = "logit"),
+                   weights = weights)
+  
+  
+  evaluation <- dismo::evaluate(p = test_data %>% filter(val == 1), 
+                                  a = test_data %>% filter(val == 0), 
+                                  mod, tr = seq(0, 1, length.out = 200))
+  #return the model + evaludation
+  return(list(mod,evaluation))
+}
+
+#test the function
+folded_data <- fold_data(prepared_data)
+test <- fit_glm(folded_data,2)
+
+```
+
+
+#### Random forest
+
+Fit a random forest with `randomForest` from package `randomForest`
+
+```{r}
+
+fit_rf <- function(folded_data,fold_i){
+  weights <- determine_weights(folded_data,fold_i)
+  if(!is.null(weights)){
+    weights <- list(first(weights),last(weights))
+  }
+  
+  train_data <- folded_data %>% filter(fold != fold_i) %>% dplyr::select(-lat,-lon,-fold,-ID)
+  train_data <- na.omit(train_data)
+  test_data <- folded_data %>% filter(fold == fold_i) %>% dplyr::select(-lat,-lon,-fold,-ID)
+  test_data <- na.omit(train_data)
+  
+  mod <- randomForest(x = train_data %>% dplyr::select(-val), 
+                      y = train_data %>% dplyr::pull(val) %>% as.factor(), 
+                      importance = T, 
+                      norm.votes = TRUE)
+  
+  rf.pred <- predict(mod, type = "prob", newdata = test_data)[,2]
+  evaluation <- dismo::evaluate(p = rf.pred[test_data$val == 1], 
+                                a = rf.pred[test_data$val == 0], 
+                                tr = seq(0, 1, length.out = 200))
+  
+  #return the model + evaludation
+  return(list(mod,evaludation))
+}
+
+#test the function
+folded_data <- fold_data(prepared_data)
+test <- fit_rf(folded_data,2)
+
+```
+
+#### GAM
+
+Fit a GAM using `gam` from `mgcv`
+
+```{r}
+
+fit_gam <- function(folded_data,fold_i,knots_gam = -1){
+  train_data <- folded_data %>% filter(fold != fold_i) %>% dplyr::select(-lat,-lon,-fold,-ID)
+  test_data <- folded_data %>% filter(fold == fold_i) %>% dplyr::select(-lat,-lon,-fold,-ID)
+  weights <- determine_weights(folded_data,fold_i)
+  
+  
+  ## create formula for gam
+  l <- sapply(folded_data %>% filter(fold != fold_i) %>% dplyr::select(-lon,-lat,-fold,-ID), unique)
+  ks <- data.frame(variable = rownames(data.frame(k = round(sapply(l, length))[-1])),k = data.frame(k = round(sapply(l, length))[-1]))
+  rownames(ks) <- 1:nrow(ks)
+  
+  # drop variables according to number of knots asked for
+  # -1 is basically 9 knots
+  if(knots_gam == -1) {
+    v_keep <- ks[ks$k > 11,]
+    print(paste("variable dropped =", ks$variable[!ks$variable %in% v_keep$variable]))
+  }
+  
+  # any others just keep the variables with over the number of knots
+  if(knots_gam > 0) {
+    v_keep <- ks[ks$k > (knots_gam+3),]
+    print(paste("variable dropped =", ks$variable[!ks$variable %in% v_keep$variable]))
+  }
+  
+  #create the formula
+  form <- as.formula(paste0("val ~ s(", paste(v_keep$variable,
+                                            ", k = ", knots_gam) %>%
+                            paste0(collapse = ") + s("), ")"))
+  
+  #fit the model
+  mod <- gam(formula = form, data = train_data, 
+           family = binomial(link = 'logit'), 
+           select = TRUE, method = 'REML', gamma = 1.4,
+           weights = weights)
+  
+  
+  test_data <- na.omit(test_data)
+  evaluation <- dismo::evaluate(p = test_data %>% filter(val == 1), 
+                                  a = test_data %>% filter(val == 0), 
+                                  mod, tr = seq(0, 1, length.out = 200))
+  
+  #return the model + evaludation
+  return(list(mod,evaluation))
+}
+
+#test the function
+folded_data <- fold_data(prepared_data)
+test <- fit_gam(folded_data,2)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

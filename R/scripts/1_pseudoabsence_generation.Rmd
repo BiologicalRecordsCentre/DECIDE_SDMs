@@ -26,6 +26,8 @@ library(readr)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
+library(rJava)
+
 
 library(parallel)
 n.cores <- detectCores()
@@ -74,7 +76,7 @@ Generate some test data
 ```{r}
 if(F){
   #generate pseudo absences
-  test_species <- unique(phenology$scientific_name)[1:50]
+  test_species <- distinct(phenology$scientific_name)[1:50]
   n_records <- 500000
   
   #species data for all species for all year round
@@ -105,10 +107,12 @@ Load real data
 #load in the data (pre-processed)
 butterfly_records <- read_csv("data/derived_data/species/butterfly/records/butterfly_EastNorths_no_duplicates_2021_12_06.csv")
 day_moth_records <- read_csv("data/derived_data/species/day_flying_moth/records/DayFlyingMoths_EastNorths_no_duplicates.csv")
+#night_moth_records <- read_csv()
 
 # add a new column to differentiate the groups
 butterfly_records$group <- "butterfly"
 day_moth_records$group <- "day_flying_moth"
+#night_moth_records$group <- "night_flying_moth"
 
 #make into one big dataframe
 #select relevant columns ready for cpa function
@@ -122,15 +126,74 @@ all_spdata <- bind_rows(butterfly_records,day_moth_records) %>%
   mutate(month = as.numeric(as.factor(months(date))))
 
 
+species_list <- all_spdata %>% select(group,species) %>% distinct()
+saveRDS(species_list,"data/derived_data/species/species_list.RDS")
+
+#add a species group colomn to the phenology data
+phenology <- left_join(phenology,all_spdata %>% select(group,species) %>% distinct(), by = c("scientific_name"="species"))
+
+#dataframe of unique lcoations
+unique_locs <- all_spdata %>% 
+  select(species,lat,lon) %>% 
+  distinct() %>% 
+  left_join(filter(phenology,value), by = c("species" = "scientific_name"))
+
+location_and_month <- unique_locs %>% select(group,lat,lon,month,month_num) %>% distinct()
 
 
-#view the dataframe
-str(all_spdata)
+pas_meta_data <- all_spdata %>% group_by(species,group) %>%
+  summarise(n= n(),
+            unique_locs = length(unique(paste(lat,lon)))
+            )
+
+pas_meta_data$n_months <- 
+  pas_meta_data$n_species_overlap <- 
+  pas_meta_data$n_possible_pas_locs <- 0
+
+
+
+#in a loop because it was a headache working out how to do this nearly in dplyr
+for (i in 1:nrow(pas_meta_data)){
+  print(i)
+  species_name <- pas_meta_data$species[i]
+  
+  # get the months in which the target species is active
+  species_months <- phenology %>% filter(scientific_name == species_name ,value) %>% pull(month)
+  pas_meta_data$n_months[i] <- length(species_months)
+  
+  pas_meta_data$n_species_overlap[i] <- length(phenology %>% filter(month %in% species_months,group == pas_meta_data$group[i]) %>% select(scientific_name) %>% distinct() %>% pull(scientific_name))
+  
+  # get all the possible locations that psuedoabsences could be placed given that the species is only active in certain months
+  all_locs <- location_and_month %>% filter(month %in% species_months,group == pas_meta_data$group[i]) %>% select(lat,lon) %>% distinct()
+  
+  # remove locations where records have already been made for the target species
+  pas_locs <- setdiff(all_locs,all_spdata %>% filter(species == species_name) %>% select(lat,lon))
+  
+  #number of possible unique locations for pseudoabsences
+  pas_meta_data$n_possible_pas_locs[i] <- nrow(pas_locs)
+  
+}
+
+head(pas_meta_data)
+
+saveRDS(pas_meta_data,"data/derived_data/species/pas_meta_data.RDS")
+
+# pas_meta_data %>% 
+#   filter(group == "butterfly") %>%
+#   ggplot(aes(x = unique_locs,y = n_possible_pas_locs))+
+#   geom_point()+
+#   ylim(c(300000,600000))+
+#   geom_smooth()
+
+
+
 ```
+
 
 Generate phenologically-aware targeted pseudo-absences
 
 ```{r}
+
 #function for generating psuedo absences ("pas")
 #loads data from environment
 generate_pas <- function(sci_name){
@@ -150,14 +213,14 @@ generate_pas <- function(sci_name){
   # all data recorded in the main activity season of the species AND species records of the target species from outside their main recording activity
   relevant_data <- all_spdata %>% 
     filter(group == species_group) %>%
-    filter(month %in% species_phenology | species == sci_name )
+    filter(month %in% species_phenology | species == sci_name)
   
   pas <- cpa(spdat = relevant_data,
              species = sci_name,
              nAbs = 10000,
-             matchPres = F,
+             matchPres = T,
              recThresh = 5,
-             replace = T)
+             replace = F)
 
   pas
 }
@@ -166,7 +229,7 @@ generate_pas <- function(sci_name){
 test <- generate_pas("Pieris brassicae")
 
 #generate pas for a set of species
-species <- unique(all_spdata$species)[1:10]
+species <- unique(all_spdata$species)
 
 # use lapply
 #basically seems to run in a loop but it works fine
@@ -174,11 +237,14 @@ pas <- lapply(as.list(species),FUN = generate_pas)
 
 # in parallel using parLapply
 clust <- makeCluster(n.cores-1)
-clusterExport(clust, c("phenology","all_spdata","%>%","cpa","setdiff","filter","pull"))
+clusterExport(clust, c("phenology","all_spdata","%>%","cpa","setdiff","filter","pull","distinct"))
 pas <- parLapply(clust, as.list(species), generate_pas)
 
+#give names to each item in list
+names(pas) <- gsub(" ","_",tolower(species))
 
-saveRDS(pas)
+
+saveRDS(pas,"data/derived_data/species/pas.RDS")
 
 ```
 
