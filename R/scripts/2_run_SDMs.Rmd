@@ -9,6 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+### Load packages
 
 ```{r}
 library(rslurm)
@@ -19,6 +20,15 @@ library(randomForest)
 library(mgcv)
 
 library(dismo)
+
+```
+
+### Parameters
+
+```{r}
+n_folds <- 10
+species_name <- "pieris_brassicae"
+model <- 
 
 ```
 
@@ -47,6 +57,8 @@ prepare_data <- function(species_name, pas, env_data){
 
   #get the presence/absence for the relvant species
   pas_species <- pas[[species_name]]
+  
+  #for testing purposes subset to 1000 rows
   pas_species$Presence <- pas_species$Presence[1:1000,] %>% as.data.frame()
   pas_species$pseudoAbsence <- pas_species$pseudoAbsence[1:1000,] %>% as.data.frame()
 
@@ -54,17 +66,18 @@ prepare_data <- function(species_name, pas, env_data){
   env_data <- terra::rast(env_data)
   pres <- data.frame(val = 1,terra::extract(x = env_data, y = pas_species$Presence[,c("lon","lat")]), pas_species$Presence[,c("lon","lat")])
   ab <- data.frame(val = 0, terra::extract(x = env_data, y = pas_species$pseudoAbsence[,c("lon","lat")]), pas_species$pseudoAbsence[,c("lon","lat")])
-
+  
+  #remove NAs
+  pres <- na.omit(pres)
+  ab <- na.omit(ab)
+  
+  # make into one data frame
   pres_and_ab <- bind_rows(pres,ab)
-
   pres_and_ab
 }
 
-prepared_data <- prepare_data("pieris_brassicae",pas,env_dat)
+prepared_data <- prepare_data(species_name,pas,env_dat)
 head(prepared_data)
-
-#there are some NAs
-sum(is.na(prepared_data))
 
 ```
 
@@ -72,13 +85,15 @@ Define the folds in the data
 
 ```{r}
 
-fold_data <- function(prepared_data){
-  prepared_data$fold[prepared_data$val==1] <- prepared_data %>% filter(val == 1) %>% kfold(10)
-  prepared_data$fold[prepared_data$val==0] <- prepared_data %>% filter(val == 0) %>% kfold(10)
+fold_data <- function(prepared_data,n_folds=10){
+  prepared_data$fold[prepared_data$val==1] <- prepared_data %>% filter(val == 1) %>% kfold(n_folds)
+  prepared_data$fold[prepared_data$val==0] <- prepared_data %>% filter(val == 0) %>% kfold(n_folds)
   prepared_data
 }
 
 head(fold_data(prepared_data))
+
+folded_data <- fold_data(prepared_data,n_folds)
 
 ```
 
@@ -104,7 +119,7 @@ determine_weights <- function(folded_data,fold_i){
   weights
 }
 
-determine_weights(folded_data,1)
+prepared_data %>% fold_data %>% determine_weights(1)
 
 ```
 
@@ -138,12 +153,17 @@ fit_maxent <- function(folded_data,fold_i,env_data){
                             mod, tr = seq(0, 1, length.out = 200))
   
   #return the model + evaludation
-  return(list(mod,evaluation))
+  return(list(model = mod,evaluation = evaluation))
 }
 
-#test the function
-folded_data <- fold_data(prepared_data)
-test <- fit_maxent(folded_data,1,env_dat)
+if(F){
+  #test the function
+  test_mod1 <- fit_maxent(folded_data,1,env_dat)
+  class(test_mod1$model) #determine the class:
+  # [1] "MaxEnt"
+  # attr(,"package")
+  # [1] "dismo"
+}
 
 ```
 
@@ -168,12 +188,15 @@ fit_glm <- function(folded_data,fold_i){
                                   a = test_data %>% filter(val == 0), 
                                   mod, tr = seq(0, 1, length.out = 200))
   #return the model + evaludation
-  return(list(mod,evaluation))
+  return(list(model = mod,evaluation = evaluation))
 }
 
-#test the function
-folded_data <- fold_data(prepared_data)
-test <- fit_glm(folded_data,2)
+if(F){
+  #test the function
+  test_mod2 <- fit_glm(folded_data,1)
+  class(test_mod2$model) #class:
+  # [1] "glm" "lm"
+}
 
 ```
 
@@ -191,9 +214,7 @@ fit_rf <- function(folded_data,fold_i){
   }
   
   train_data <- folded_data %>% filter(fold != fold_i) %>% dplyr::select(-lat,-lon,-fold,-ID)
-  train_data <- na.omit(train_data)
   test_data <- folded_data %>% filter(fold == fold_i) %>% dplyr::select(-lat,-lon,-fold,-ID)
-  test_data <- na.omit(train_data)
   
   mod <- randomForest(x = train_data %>% dplyr::select(-val), 
                       y = train_data %>% dplyr::pull(val) %>% as.factor(), 
@@ -205,14 +226,16 @@ fit_rf <- function(folded_data,fold_i){
                                 a = rf.pred[test_data$val == 0], 
                                 tr = seq(0, 1, length.out = 200))
   
-  #return the model + evaludation
-  return(list(mod,evaludation))
+  #return the model + evaluation
+  return(list(model = mod,evaluation = evaluation))
 }
 
-#test the function
-folded_data <- fold_data(prepared_data)
-test <- fit_rf(folded_data,2)
-
+if(F){
+  #test the function
+  test_mod3 <- fit_rf(folded_data,1)
+  class(test_mod3$model)
+  # [1] "randomForest"
+}
 ```
 
 #### GAM
@@ -257,22 +280,83 @@ fit_gam <- function(folded_data,fold_i,knots_gam = -1){
            weights = weights)
   
   
-  test_data <- na.omit(test_data)
   evaluation <- dismo::evaluate(p = test_data %>% filter(val == 1), 
                                   a = test_data %>% filter(val == 0), 
                                   mod, tr = seq(0, 1, length.out = 200))
   
   #return the model + evaludation
-  return(list(mod,evaluation))
+  return(list(model = mod,evaluation = evaluation))
 }
 
-#test the function
-folded_data <- fold_data(prepared_data)
-test <- fit_gam(folded_data,2)
+if(F){
+  #test the function
+  test_mod4 <- fit_gam(folded_data,1)
+  class(test_mod4$model)
+  # [1] "gam" "glm" "lm"
+}
 
 
 ```
 
+
+```{r}
+
+
+
+```
+
+### Make predictions
+
+```{r}
+#crop the raster for testing
+smaller_extent <- extent(c(400000, 410000, 260000, 270000))
+env_dat <- crop(x = env_dat, y = smaller_extent)
+
+```
+
+```{r}
+get_predictions <- function(model_list,env_data) {
+  print(model_list[[1]]$model)
+  
+  #get the model class
+  model_class <- class(model_list[[1]]$model)
+  
+  # number of bootstraps that were run
+  k = length(model_list)
+  
+  print(model_class)
+  
+  # choose the type and index for predict function
+  if("glm" %in% model_class){ #"glm" is in the model class for both gams and glms
+    type <- "response"
+    index <- NULL
+  } else if ("randomForest" %in% model_class) {
+    type <- "prob"
+    index <- 2
+  }
+  
+  ## bootstrapped models
+  print(paste0('#####   predicting from bootstrapped models   #####')) 
+  
+  # predict from each of the bootstrapped models and stack them together
+  boots_out <- raster::stack(lapply(model_list, FUN = function(x) {predict(env_data, x$model, type=type, index=index)} ))
+  
+  ## quantiles
+  print(paste0('#####   getting standard deviation   #####'))
+  mean_preds <- calc(boots_out, fun = mean, na.rm = T) # the mean
+  rnge <- calc(boots_out, fun = function(x) {sd(x, na.rm = TRUE)}) # get the standard deviation
+  # rnge <- quant_preds[[2]]-quant_preds[[1]] # get the range of max - min
+    
+
+  return(list(mean_predictions = mean_preds,
+              quant_range = rnge))
+}
+
+```
+
+```{r}
+test <- get_predictions(list(test_mod2,test_mod2),env_dat)
+```
 
 
 

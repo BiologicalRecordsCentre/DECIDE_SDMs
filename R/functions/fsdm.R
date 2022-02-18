@@ -1,3 +1,5 @@
+# Not used any more
+
 fsdm <- function(species, model, climDat, spData, k, write, outPath, #inters = F, prediction = TRUE,
                  knots_gam = -1){ 
   
