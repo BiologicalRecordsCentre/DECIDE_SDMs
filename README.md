@@ -1,5 +1,7 @@
 # DECIDE_SDMs
 
+Supercedes https://github.com/TMondain/DECIDE_WP1
+
 ## Introduction
 
 Running SDMs for the DECIDE project
