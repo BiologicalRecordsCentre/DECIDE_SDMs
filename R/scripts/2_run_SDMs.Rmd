@@ -9,6 +9,9 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+
+
 ### Load packages
 
 ```{r}
@@ -21,6 +24,8 @@ library(mgcv)
 
 library(dismo)
 
+library(ggplot2)
+
 ```
 
 ### Parameters
@@ -28,11 +33,14 @@ library(dismo)
 ```{r}
 n_folds <- 10
 species_name <- "pieris_brassicae"
-model <- 
+model_to_run <- "glm" 
+#model_to_run <- "gam" 
+#model_to_run <- "rf" 
+#model_to_run <- "maxent" 
 
 ```
 
-###Load data
+### Load data
 
 ```{r load_data}
 #records and pseudoabsences
@@ -59,8 +67,8 @@ prepare_data <- function(species_name, pas, env_data){
   pas_species <- pas[[species_name]]
   
   #for testing purposes subset to 1000 rows
-  pas_species$Presence <- pas_species$Presence[1:1000,] %>% as.data.frame()
-  pas_species$pseudoAbsence <- pas_species$pseudoAbsence[1:1000,] %>% as.data.frame()
+  pas_species$Presence <- pas_species$Presence[1:20000,] %>% as.data.frame()
+  pas_species$pseudoAbsence <- pas_species$pseudoAbsence[1:20000,] %>% as.data.frame()
 
   #extract environmental variables
   env_data <- terra::rast(env_data)
@@ -153,10 +161,10 @@ fit_maxent <- function(folded_data,fold_i,env_data){
                             mod, tr = seq(0, 1, length.out = 200))
   
   #return the model + evaludation
-  return(list(model = mod,evaluation = evaluation))
+  return(list(model = mod,evaluation = evaluation,summary = summary(mod)))
 }
 
-if(F){
+if(model_to_run == "maxent"){
   #test the function
   test_mod1 <- fit_maxent(folded_data,1,env_dat)
   class(test_mod1$model) #determine the class:
@@ -172,6 +180,21 @@ if(F){
 Fit a GLM using `glm()`
 
 ```{r}
+#from https://win-vector.com/2014/05/30/trimming-the-fat-from-glm-models-in-r/
+clean_model = function(cm) {
+  cm$y = c()
+  cm$model = c()
+  
+  cm$residuals = c()
+  cm$fitted.values = c()
+  cm$effects = c()
+  cm$qr$qr = c()  
+  cm$linear.predictors = c()
+  cm$weights = c()
+  cm$prior.weights = c()
+  cm$data = c()
+  cm
+}
 
 fit_glm <- function(folded_data,fold_i){
   
@@ -181,17 +204,21 @@ fit_glm <- function(folded_data,fold_i){
   
   mod <- glm(val ~ ., data = train_data, 
                    family = binomial(link = "logit"),
-                   weights = weights)
-  
+                   weights = weights,
+             model = F)
   
   evaluation <- dismo::evaluate(p = test_data %>% filter(val == 1), 
                                   a = test_data %>% filter(val == 0), 
                                   mod, tr = seq(0, 1, length.out = 200))
+  mod_summary <- summary(mod)
+  
+  mod <- clean_model(mod)
+  
   #return the model + evaludation
-  return(list(model = mod,evaluation = evaluation))
+  return(list(model = mod,evaluation = evaluation,summary = mod_summary))
 }
 
-if(F){
+if(model_to_run == "glm"){
   #test the function
   test_mod2 <- fit_glm(folded_data,1)
   class(test_mod2$model) #class:
@@ -227,10 +254,10 @@ fit_rf <- function(folded_data,fold_i){
                                 tr = seq(0, 1, length.out = 200))
   
   #return the model + evaluation
-  return(list(model = mod,evaluation = evaluation))
+  return(list(model = mod,evaluation = evaluation,summary = summary(mod)))
 }
 
-if(F){
+if(model_to_run == "rf"){
   #test the function
   test_mod3 <- fit_rf(folded_data,1)
   class(test_mod3$model)
@@ -285,10 +312,10 @@ fit_gam <- function(folded_data,fold_i,knots_gam = -1){
                                   mod, tr = seq(0, 1, length.out = 200))
   
   #return the model + evaludation
-  return(list(model = mod,evaluation = evaluation))
+  return(list(model = mod,evaluation = evaluation,summary = summary(mod)))
 }
 
-if(F){
+if(model_to_run == "gam"){
   #test the function
   test_mod4 <- fit_gam(folded_data,1)
   class(test_mod4$model)
@@ -309,12 +336,13 @@ if(F){
 
 ```{r}
 #crop the raster for testing
-smaller_extent <- extent(c(400000, 410000, 260000, 270000))
+smaller_extent <- extent(c(370000, 380000, 160000, 170000))
 env_dat <- crop(x = env_dat, y = smaller_extent)
 
 ```
 
 ```{r}
+#model list is a list of 10 models fitted from each boostrap
 get_predictions <- function(model_list,env_data) {
   print(model_list[[1]]$model)
   
@@ -333,6 +361,9 @@ get_predictions <- function(model_list,env_data) {
   } else if ("randomForest" %in% model_class) {
     type <- "prob"
     index <- 2
+  } else if ("MaxEnt" %in% model_class){
+    type <- NULL
+    index <- NULL
   }
   
   ## bootstrapped models
@@ -352,10 +383,159 @@ get_predictions <- function(model_list,env_data) {
               quant_range = rnge))
 }
 
+#test
+if(F){
+  test <- get_predictions(list(test_mod1,test_mod1,test_mod1,test_mod1),env_dat)
+}
+
 ```
+
+Fit the models and run predictions
 
 ```{r}
-test <- get_predictions(list(test_mod2,test_mod2),env_dat)
+
+folds_list <- as.list(1:n_folds)
+
+#run the models on the folded data
+if(model_to_run == "glm"){
+  
+  mods <- lapply(folds_list,FUN = function(x){
+    fit_glm(folded_data,x)
+    })
+  
+} else if(model_to_run == "gam"){
+  
+  mods <- lapply(folds_list,FUN = function(x){
+    fit_gam(folded_data,x)
+    })
+  
+} else if(model_to_run == "rf"){
+  
+  mods <- lapply(folds_list,FUN = function(x){
+    fit_rf(folded_data,x)
+    })
+  
+} else if(model_to_run == "maxent"){
+  
+  mods <- lapply(folds_list,FUN = function(x){
+    fit_maxent(folded_data,x)
+    })
+  
+}
+
+#get predictions
+predictions <- get_predictions(mods,env_dat)
+
+# object.size(mods) %>% format(units = "Mb")
+# object.size(predictions) %>% format(units = "Mb")
+
+```
+
+Saving objects 
+
+ * rasters for mean and bootstrapped model uncertainty
+ * one of the boostrapped models (ideally without all the data)
+ * summaries from all of the models
+
+```{r}
+
+#save rasters
+
+#write prediction
+#raster::writeRaster()
+
+#write SDM uncertainty
+#raster::writeRaster()
+
+
+#calculate mean AUC across all models, and generate summaries
+AUCs <- sapply(mods, function(x) {slot(x$evaluation, "auc")})
+mean_AUC <- AUCs %>% mean()
+summaries <- lapply(mods,FUN = function(x){x$summary})
+
+#remove the models for all but the first bootstrap
+#but retain evaluations and summaries
+for (i in 2:n_folds){
+  mods[[i]]$model <- NULL
+}
+
+#check model size
+object.size(mods) %>% format(units = "Mb")
+
+#create one object for saving
+output <- 
+  list(mods,
+       AUCs = AUCs,
+       mean_AUC = mean_AUC,
+       summaries = summaries)
+
+#check size of this object
+object.size(output) %>% format(units = "Mb") # all models
+
+#save output
+saveRDS(output,file = paste0("data/derived_data/model_outputs_by_species/",model_to_run,"/",species_name,".rds"))
+
+```
+
+
+### Diagnostic plots
+
+```{r}
+
+plot_diags <- F
+
+if(plot_diags){
+  #generic diagnostic plot
+  plot(mods[[1]]$model)
+  
+  #mean prediction versus sd
+  plot(x = values(predictions$mean_predictions),y = values(predictions$quant_range))
+  
+  #cap big values
+  values(predictions$quant_range)[values(predictions$quant_range)>0.0025] <- 0.0025
+  
+  #compare predicted vs actual (and pseudo)
+  test <- data.frame(folded_data[,c("lon","lat","val")],prediction =terra::extract(x = predictions$mean_predictions, y = folded_data[,c("lon","lat")])) %>% na.omit(test)
+  test %>%
+    ggplot(aes(x = val, y = prediction))+
+    geom_point()
+  
+  #turn raster into a data frame for ggplotting
+  test_spdf <- as(predictions$mean_predictions, "SpatialPixelsDataFrame")
+  test_df <- as.data.frame(test_spdf)
+  colnames(test_df) <- c("value", "x", "y")
+  
+  #plot raster and points
+  test %>%
+    filter(val == 1) %>%
+    ggplot(aes(x = lon,y = lat))+
+    geom_tile(data=test_df, aes(x=x, y=y, fill=value), alpha=1)+
+    scale_fill_gradient(low = "aliceblue",high = "chartreuse3")+
+    geom_point(alpha = 1,shape = 16)+
+    theme_classic()+
+    labs(fill = "Probability of presence",x = "Eastings",y = "Northings")+
+    coord_fixed()
+    
+  
+  #turn raster into a data frame for ggplotting
+  test_spdf <- as(predictions$quant_range, "SpatialPixelsDataFrame")
+  test_df <- as.data.frame(test_spdf)
+  colnames(test_df) <- c("value", "x", "y")
+  
+  #plot raster and points
+  test %>% 
+    filter(val == 1) %>%
+    ggplot(aes(x = lon,y = lat))+
+    geom_tile(data=test_df, aes(x=x, y=y, fill=(log(value)+8.1)/5), alpha=1)+
+    scale_fill_gradient(low = "aliceblue",high = "coral1")+
+    geom_point(alpha = 1,shape = 16)+
+    theme_classic()+
+    labs(fill = "Model Uncertainty",x = "Eastings",y = "Northings")+
+    coord_fixed()
+}
+
+
+
 ```
 
 
@@ -363,6 +543,12 @@ test <- get_predictions(list(test_mod2,test_mod2),env_dat)
 
 
 
+```{r}
+
+
+print("done")
+
+```
 
 
 
