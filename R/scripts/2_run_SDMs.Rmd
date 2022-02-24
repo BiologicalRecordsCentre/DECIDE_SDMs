@@ -460,10 +460,10 @@ For each model run for each species we end up with 4 files
 
 #save rasters
 #write prediction
-raster::writeRaster(predictions$mean_predictions,filename = paste0("data/derived_data/model_outputs_by_species/",model_to_run,"/mean_prediction_",species_name,".grd"))
+raster::writeRaster(predictions$mean_predictions,filename = paste0("data/derived_data/model_outputs_by_species/",model_to_run,"/mean_prediction_",species_name,".grd"),overwrite=T)
 
 #write SDM uncertainty
-raster::writeRaster(predictions$mean_predictions,filename = paste0("data/derived_data/model_outputs_by_species/",model_to_run,"/boostrapped_sd_",species_name,".grd"))
+raster::writeRaster(predictions$quant_range,filename = paste0("data/derived_data/model_outputs_by_species/",model_to_run,"/bootstrapped_sd_",species_name,".grd"),overwrite=T)
 
 #save model info
 #calculate mean AUC across all models, and generate summaries

@@ -1,0 +1,124 @@
+---
+title: "Producing outputs"
+author: "Simon Rolph"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Load packages
+
+```{r}
+library(dplyr)
+library(raster)
+```
+
+### Parameters
+
+```{r}
+group_to_process <- "butterfly" #day_flying_moth
+```
+
+### Check files avilability
+
+Taking the species list defined in `species_list.RDS` then building lists of files that we are looking for then comparing this to the files available.
+
+```{r}
+#get species list
+species_list <- readRDS("species_list.RDS") %>% 
+  filter(group == group_to_process) %>% 
+  pull(species) %>%
+  tolower() %>% gsub(" ","_",.)
+
+
+#check ensemble models
+#files we want
+prediction_files <- paste0("mean_prediction_",species_list,".gri")
+sd_files <- paste0("bootstrapped_sd_",species_list,".gri")
+
+file_check_df <- data.frame(species = species_list,
+           prediction_file = prediction_files,
+           sd_file = sd_files)
+
+#files we have
+files_available <- list.files("data/derived_data/model_outputs_by_species/ensemble",pattern = ".gri")
+
+#check the target files against files that are available and add a new column to the df reporting on this check
+file_check_df$prediction_check <- file_check_df$prediction_file %in% files_available
+file_check_df$sd_check <- file_check_df$sd_file %in% files_available
+
+#highlight missing species models but continues none-the-less and makes the outputs with whatever species it has predictions for.
+print("Species with predictions:")
+species_to_use <- file_check_df %>% filter(prediction_check, prediction_check) %>% dplyr::select(species,prediction_check,sd_check) %>% pull(species)
+species_to_use
+
+#species with missing predictions
+print("Species with missing predictions:")
+file_check_df %>% filter(!prediction_check |!prediction_check) %>% dplyr::select(species,prediction_check,sd_check)
+
+#get the filenames we want to use
+prediction_files <- prediction_files[prediction_files %>% grepl(species_to_use,.)]
+sd_files <- sd_files[sd_files %>% grepl(species_to_use,.)]
+
+```
+
+### Load files and build rasters
+
+Load phenology
+
+```{r}
+phenology <- readRDS("data/derived_data/species/phenology.RDS")
+```
+
+Load files
+
+```{r}
+#prediction raster
+prediction_raster <- raster::stack(paste0("data/derived_data/model_outputs_by_species/ensemble/",prediction_files))
+names(prediction_raster) <- species_to_use
+
+#sd raster
+sd_raster <- raster::stack(paste0("data/derived_data/model_outputs_by_species/ensemble/",sd_files))
+names(sd_raster) <- species_to_use
+
+```
+
+All-time species richness and uncertainty
+
+```{r}
+#build all time richness and model uncertainty layers
+species_richness_all_time <- raster::calc(prediction_raster,sum)
+model_uncertainty_all_time <- raster::calc(sd_raster,mean)
+```
+
+Monthly species richness and uncertainty
+
+```{r}
+for (i in 1:12){
+  species <- phenology %>% filter(month_num == i,value) %>% pull(scientific_name) %>% tolower() %>% gsub(" ","_",.)
+  
+  prediction_raster[[names(prediction_raster) %in% species]] %>% raster::calc(sum)
+  sd_raster[[names(sd_raster) %in% species]] %>% raster::calc(mean)
+  
+}
+
+
+```
+
+
+Save files
+
+```{r}
+
+
+
+
+
+```
+
+
+
+

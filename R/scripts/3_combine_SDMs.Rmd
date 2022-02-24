@@ -78,7 +78,7 @@ names(predictions) <- models_to_load
 # sd of bootstraps
 #load sd of bootstrapped model predictions
 files_to_load <- paste0("data/derived_data/model_outputs_by_species/",models_to_load,"/bootstrapped_sd_",species_name,".gri")
-bootstrapped_sd <- predictions <- raster::stack(files_to_load)
+bootstrapped_sd <- raster::stack(files_to_load)
 names(bootstrapped_sd) <- models_to_load
 
 #build ensembles by weighted mean
@@ -91,7 +91,7 @@ raster::writeRaster(predictions_ensemble,
                     overwrite = TRUE)
 
 raster::writeRaster(bootstrapped_sd_ensemble,
-                    filename = paste0("data/derived_data/model_outputs_by_species/ensemble/boostrapped_sd_",species_name,".grd"),
+                    filename = paste0("data/derived_data/model_outputs_by_species/ensemble/bootstrapped_sd_",species_name,".grd"),
                     overwrite = TRUE)
 
 
