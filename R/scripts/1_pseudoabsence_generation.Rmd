@@ -1,7 +1,6 @@
 ---
 title: "Pseudoabsence generation"
 author: "Simon Rolph"
-date: "10/02/2022"
 output: html_document
 ---
 

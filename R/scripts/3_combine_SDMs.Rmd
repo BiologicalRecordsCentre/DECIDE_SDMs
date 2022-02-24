@@ -1,0 +1,100 @@
+---
+title: "Compile SDM outputs"
+author: "Simon Rolph"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load packages
+
+```{r}
+library(dplyr)
+library(raster)
+```
+
+### Parameters
+
+```{r}
+species_name <- "pieris_brassicae"
+models <- c("gam","glm","maxent","rf")
+AUC_cutoff <- 0.75
+```
+
+### LoadAUCs of different models for this species
+
+Get AUCs from models to work out which models to use in the ensemble. Filter by whether they are over the AUC cut-off.
+
+```{r}
+
+#create a dataframe with model type and mean AUC
+AUC_df <- data.frame(models,AUC = NA)
+
+#loop through files
+for(i in 1:length(models)){
+  model <- models[i]
+  file_listed <- list.files(paste0("data/derived_data/model_outputs_by_species/",model))
+  
+  if(paste0("mean_AUC_",species_name,".rds") %in% file_listed){
+    AUC_df[i,"AUC"] <- readRDS(paste0("data/derived_data/model_outputs_by_species/",model,"/mean_AUC_",species_name,".rds"))
+  }
+}
+
+AUC_df
+
+#if there are NA AUCs
+if(any(is.na(AUC_df$AUC))){
+  AUC_df <- na.omit(AUC_df)
+  warning("The AUCs from some models were NA. This may mean that a model failed.")
+}
+
+#if any of the models have an AUC over the cut-off
+if(any(AUC_df$AUC>AUC_cutoff)){
+  #filter so that we only use models over the cut-off
+  AUC_df <- AUC_df %>% filter(AUC>AUC_cutoff)
+} else{
+  #if none are over the threshold then they'll all be used
+  warning(paste0("None of the models for ",species_name," met the AUC threshold of ",AUC_cutoff))
+}
+
+models_to_load <- AUC_df$models
+
+
+```
+
+### Load models and produce ensemble
+
+Load models based on the `models_to_load` produced in the previous code block. Use `raster::weighted.mean()` to produce an average weighted by AUC then build and save ensemble model as rasters in .gri/.grd format.
+
+```{r}
+# Predicted probability of presence
+#load mean model predictions
+files_to_load <- paste0("data/derived_data/model_outputs_by_species/",models_to_load,"/mean_prediction_",species_name,".gri")
+predictions <- raster::stack(files_to_load)
+names(predictions) <- models_to_load
+
+# sd of bootstraps
+#load sd of bootstrapped model predictions
+files_to_load <- paste0("data/derived_data/model_outputs_by_species/",models_to_load,"/bootstrapped_sd_",species_name,".gri")
+bootstrapped_sd <- predictions <- raster::stack(files_to_load)
+names(bootstrapped_sd) <- models_to_load
+
+#build ensembles by weighted mean
+predictions_ensemble <- raster::weighted.mean(x = predictions, w = AUC_df$AUC)
+bootstrapped_sd_ensemble <- raster::weighted.mean(x = bootstrapped_sd, w = AUC_df$AUC)
+
+#save ensembles
+raster::writeRaster(predictions_ensemble,
+                    filename = paste0("data/derived_data/model_outputs_by_species/ensemble/mean_prediction_",species_name,".grd"),
+                    overwrite = TRUE)
+
+raster::writeRaster(bootstrapped_sd_ensemble,
+                    filename = paste0("data/derived_data/model_outputs_by_species/ensemble/boostrapped_sd_",species_name,".grd"),
+                    overwrite = TRUE)
+
+
+```
+
+

@@ -1,7 +1,6 @@
 ---
 title: "Run SDMs"
 author: "Simon Rolph"
-date: "11/02/2022"
 output: html_document
 ---
 

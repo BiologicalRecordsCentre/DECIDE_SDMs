@@ -91,14 +91,19 @@ For each model run for each species we end up with 4 files
     each model, the mean AUC across all models (again) and the summaries
     for all models.
 
-### Combining to seasonal and all-time DECIDE score model uncertainty component
+### Combining models for each species to produce ensemble model
+
+`R/scripts/3_combine_SDMs.Rmd`
 
 Inputs:
 
 -   `data/derived_data/model_outputs_by_species`
 
-Outputs \* `data/derived_data/model_outputs_by_species/ensemble` \*
-`data/derived_data/combined_model_outputs/`
+Outputs
+
+-   `data/derived_data/model_outputs_by_species/ensemble`
+
+### Combining to seasonal and all-time DECIDE score model uncertainty component
 
 ### Transfer of data
 
@@ -114,7 +119,8 @@ Generated with `fs::dir_tree()`
     ## |   \-- fsdm.R
     ## \-- scripts
     ##     +-- 1_pseudoabsence_generation.Rmd
-    ##     \-- 2_run_SDMs.Rmd
+    ##     +-- 2_run_SDMs.Rmd
+    ##     \-- 3_combine_SDMs.Rmd
 
 ### Data
 
@@ -132,10 +138,14 @@ Generated with `fs::dir_tree()`
     ## |   |   \-- lcm2015gb100perc.tif
     ## |   +-- model_outputs_by_species
     ## |   |   +-- ensemble
-    ## |   |   +-- gam
-    ## |   |   +-- glm
     ## |   |   |   +-- boostrapped_sd_pieris_brassicae.grd
     ## |   |   |   +-- boostrapped_sd_pieris_brassicae.gri
+    ## |   |   |   +-- mean_prediction_pieris_brassicae.grd
+    ## |   |   |   \-- mean_prediction_pieris_brassicae.gri
+    ## |   |   +-- gam
+    ## |   |   +-- glm
+    ## |   |   |   +-- bootstrapped_sd_pieris_brassicae.grd
+    ## |   |   |   +-- bootstrapped_sd_pieris_brassicae.gri
     ## |   |   |   +-- mean_AUC_pieris_brassicae.rds
     ## |   |   |   +-- mean_prediction_pieris_brassicae.grd
     ## |   |   |   +-- mean_prediction_pieris_brassicae.gri

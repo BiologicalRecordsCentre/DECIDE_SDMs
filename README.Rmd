@@ -61,16 +61,22 @@ For each model run for each species we end up with 4 files
  * `models_[SPECIES].rds` contains one of the models, the AUCs from each model, the mean AUC across all models (again) and the summaries for all models.
 
 
-### Combining to seasonal and all-time DECIDE score model uncertainty component
+### Combining models for each species to produce ensemble model
 
+`R/scripts/3_combine_SDMs.Rmd`
 
 Inputs:
 
 * `data/derived_data/model_outputs_by_species`
 
 Outputs
+
 * `data/derived_data/model_outputs_by_species/ensemble`
-* `data/derived_data/combined_model_outputs/`
+
+
+### Combining to seasonal and all-time DECIDE score model uncertainty component
+
+
 
 ### Transfer of data
 
