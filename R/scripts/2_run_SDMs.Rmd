@@ -2,6 +2,12 @@
 title: "Run SDMs"
 author: "Simon Rolph"
 output: html_document
+params:
+  n_folds: 10
+  species_name: pieris_brassicae
+  model_to_run: glm
+  plot_diagnostics: FALSE
+  run_test: FALSE
 ---
 
 ```{r setup, include=FALSE}
@@ -17,7 +23,6 @@ knitr::opts_knit$set(root.dir = '../../')
 ### Load packages
 
 ```{r}
-library(rslurm)
 library(dplyr)
 library(raster)
 library(terra)
@@ -33,15 +38,24 @@ library(ggplot2)
 To be set up as parametrised markdown
 
 ```{r}
-n_folds <- 10
-species_name <- "pieris_brassicae"
-model_to_run <- "glm" 
-#model_to_run <- "gam" 
-#model_to_run <- "rf" 
-#model_to_run <- "maxent" 
 
-plot_diagnostics <- F
-run_test <- T
+n_folds <- params$n_folds
+species_name <- params$species_name
+model_to_run <- params$model_to_run
+plot_diagnostics <- params$plot_diagnostics
+run_test <- params$run_test
+
+#for interactive testing purposes
+if(F){
+  n_folds <- 10
+  species_name <- "pieris_brassicae"
+  model_to_run <- "glm"
+  model_to_run <- "gam"
+  model_to_run <- "rf"
+  model_to_run <- "maxent"
+  plot_diagnostics <- F
+  run_test <- T
+}
 
 ```
 

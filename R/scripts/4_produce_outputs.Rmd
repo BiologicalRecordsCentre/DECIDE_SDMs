@@ -6,6 +6,9 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+#set working directory to the project folder, not the R/scripts folder which it is by default because it's an Rmarkdown doc 
+knitr::opts_knit$set(root.dir = '../../')
 ```
 
 

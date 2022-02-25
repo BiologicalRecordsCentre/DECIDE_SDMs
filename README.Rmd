@@ -76,9 +76,16 @@ Outputs
 
 ### Combining to seasonal and all-time DECIDE score model uncertainty component
 
+Inputs
+
+* `data/derived_data/model_outputs_by_species/ensemble`
+
+
 
 
 ### Transfer of data
+
+
 
 ## File structure
 
