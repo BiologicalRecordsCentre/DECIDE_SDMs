@@ -75,7 +75,9 @@ trigger_job <- function(n_folds,species_name,model_to_run,plot_diagnostics = F,r
 
 
 #do a test to see if it works
-trigger_job(n_folds = 10, species_name = "pieris_brassicae", model_to_run = "glm",run_test = T)
+if(F){
+  trigger_job(n_folds = 10, species_name = "pieris_brassicae", model_to_run = "glm",plot_diagnostics = T,run_test = T)
+}
 
 #generate temporary files for running the slurm job
 slurm_apply(f = trigger_job, 

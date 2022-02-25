@@ -1,6 +1,6 @@
 ---
-title: "Run SDMs"
-author: "Simon Rolph"
+title: "Fit species distributions models"
+author: "UK Centre for Ecology and Hydrology - DECIDE"
 output: html_document
 params:
   n_folds: 10
@@ -17,34 +17,41 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = '../../')
 ```
 
-
-
+```{r,echo = F}
+library(htmltools)
+h1(params$species_name)
+```
 
 ### Load packages
 
-```{r}
-library(dplyr)
-library(raster)
-library(terra)
-library(randomForest)
-library(mgcv)
-library(dismo)
-library(ggplot2)
-
+```{r packages}
+library(dplyr) # for data manipulation and %>%
+library(raster) # for working with raster data
+library(terra) # alternative to working with raster data that might be faster, used sporadically
+library(randomForest) #for fitting random forest models
+library(mgcv) # for fitting GAMs
+library(dismo) # for fitting MAXENT models
+library(ggplot2) # for plots
 ```
 
 ### Parameters
 
 To be set up as parametrised markdown
 
-```{r}
+```{r parameters}
+n_folds <- params$n_folds # how many folds for the cross validation
+n_folds
+species_name <- params$species_name # which species to model (scientific name, lowercase, underscore)
+species_name
+model_to_run <- params$model_to_run #which model to run: "glm","gam","rf","maxent"
+model_to_run
+plot_diagnostics <- params$plot_diagnostics #whether to produce diagnostic plots
+plot_diagnostics
+run_test <- params$run_test # whether this is a test run on smaller data
+run_test
+```
 
-n_folds <- params$n_folds
-species_name <- params$species_name
-model_to_run <- params$model_to_run
-plot_diagnostics <- params$plot_diagnostics
-run_test <- params$run_test
-
+```{r,echo = F}
 #for interactive testing purposes
 if(F){
   n_folds <- 10
@@ -56,7 +63,6 @@ if(F){
   plot_diagnostics <- F
   run_test <- T
 }
-
 ```
 
 ### Load data
@@ -70,9 +76,14 @@ species_list <- readRDS("data/derived_data/species/species_list.RDS")
 
 #environmental data
 env_dat <- raster::stack("data/derived_data/environmental/envdata_fixedcoasts_nocorrs_100m_GB.gri")
-#env_dat <- terra::rast(env_dat)
+#env_dat <- terra::rast(env_dat) # alternative approach not used
 
 
+if(run_test){
+  #crop the raster for testing
+  smaller_extent <- extent(c(440000, 500000, 400000, 500000))
+  env_dat <- crop(x = env_dat, y = smaller_extent)
+}
 ```
 
 ### Preparing data
@@ -81,15 +92,30 @@ Combine the pres/pseudoabsence with the environmental data to make one data fram
 
 This is where the number of pseudoabsenses relative to presences needs to be set
 
-```{r}
+```{r prepare_data}
 prepare_data <- function(species_name, pas, env_data){
+  
+  
 
   #get the presence/absence for the relvant species
   pas_species <- pas[[species_name]]
   
-  #for testing purposes subset to 20000 rows
-  pas_species$Presence <- pas_species$Presence[1:20000,] %>% as.data.frame()
-  pas_species$pseudoAbsence <- pas_species$pseudoAbsence[1:20000,] %>% as.data.frame()
+  #if testing only get 20k of each from yorkshire(ish)
+  if(run_test){
+    pas_species$Presence <- pas_species$Presence %>% filter(lat < 500000,lat>400000,lon>440000, lon <500000) %>% as.data.frame()
+    pas_species$pseudoAbsence <- pas_species$pseudoAbsence %>% filter(lat < 500000,lat>400000,lon>440000, lon <500000) %>% as.data.frame()
+    
+    #for testing purposes subset to 20000 rows
+    if (nrow(pas_species$Presence) > 20000){
+      pas_species$Presence <- pas_species$Presence[1:20000,] %>% as.data.frame()
+    }
+    if (nrow(pas_species$pseudoAbsence) > 20000){
+      pas_species$pseudoAbsence <- pas_species$pseudoAbsence[1:20000,] %>% as.data.frame()
+    }
+    
+  }
+  
+  
 
   #extract environmental variables
   env_data <- terra::rast(env_data)
@@ -106,15 +132,15 @@ prepare_data <- function(species_name, pas, env_data){
 }
 
 prepared_data <- prepare_data(species_name,pas,env_dat)
-head(prepared_data)
 
+prepared_data %>% group_by(val) %>% summarise(n = n())
 ```
 
-Define the folds in the data.
+Next, we define the folds in the data.
 
 These folds are used in the bootstrapping and model assessment. By default we're using 10 folds so we'll fit 10 models which will train a unique set of 9 of those folds, and then will be assessed using the remaining fold. Folds are represented by a new column in the data which goes from `1:n_folds`
 
-```{r}
+```{r fold_data}
 
 fold_data <- function(prepared_data,n_folds=10){
   prepared_data$fold[prepared_data$val==1] <- prepared_data %>% filter(val == 1) %>% kfold(n_folds)
@@ -125,13 +151,11 @@ fold_data <- function(prepared_data,n_folds=10){
 head(fold_data(prepared_data))
 
 folded_data <- fold_data(prepared_data,n_folds)
-
 ```
 
 Define a function that can determine weightings from data. If there are more presences than psuedoabsesnse then presences can be weighted down. This function determines those weights which can then be used as an argument in the model fitting function. If unbalanced number of records vs pseudo-absences the  provide some weighting information. Used for GLM, RF and GAM.
 
-```{r}
-
+```{r define_weights_function}
 determine_weights <- function(folded_data,fold_i){
   n_records <- folded_data %>% filter(val == 1,fold != fold_i) %>% nrow()
   n_abs <- folded_data %>% filter(val == 0,fold != fold_i) %>% nrow()
@@ -148,9 +172,9 @@ determine_weights <- function(folded_data,fold_i){
   weights
 }
 
-if(run_test){
-  prepared_data %>% fold_data %>% determine_weights(1)
-}
+# if(run_test){
+#   prepared_data %>% fold_data %>% determine_weights(1)
+# }
 
 ```
 
@@ -171,34 +195,33 @@ Models:
 
 Maxent models work best with equal number of presences and absences, so should match the number of presences and absences
 
-```{r}
-fit_maxent <- function(folded_data,fold_i,env_data){
+```{r fit_maxent_function}
+fit_maxent <- function(folded_data,fold_i){
   options(java.parameters = "-Xmx3g") #https://stackoverflow.com/questions/5374455/what-does-java-option-xmx-stand-for
   
   #fit the model
-  mod <- maxent(x = env_data, 
-                p = folded_data %>% filter(val == 1, fold != fold_i) %>% dplyr::select(lon,lat), 
-                a = (folded_data %>% filter(val == 0, fold != fold_i) %>% dplyr::select(lon,lat))
+  mod <- maxent(x = folded_data %>% filter(fold != fold_i) %>% dplyr::select(-ID,-lat,-lon,-val,-fold),
+                p = folded_data %>% filter(fold != fold_i) %>% dplyr::select(val)
                 )
   
   #evaludate the model
-  evaluation <- dismo::evaluate(p = folded_data %>% filter(val == 1, fold == fold_i) %>% dplyr::select(lon,lat), 
-                            a = folded_data %>% filter(val == 0, fold == fold_i) %>% dplyr::select(lon,lat), 
-                            x = env_data,
+  test_data <- folded_data %>% filter(fold == fold_i) %>% dplyr::select(-lat,-lon,-fold,-ID)
+  evaluation <- dismo::evaluate(p = test_data %>% filter(val == 1), 
+                            a = test_data %>% filter(val == 0),
                             mod, tr = seq(0, 1, length.out = 200))
   
   #return the model + evaludation
   return(list(model = mod,evaluation = evaluation,summary = summary(mod)))
 }
 
-if(model_to_run == "maxent" & run_test){
-  #test the function
-  test_mod1 <- fit_maxent(folded_data,1,env_dat)
-  class(test_mod1$model) #determine the class:
-  # [1] "MaxEnt"
-  # attr(,"package")
-  # [1] "dismo"
-}
+# if(model_to_run == "maxent" & run_test){
+#   #test the function
+#   test_mod1 <- fit_maxent(folded_data,1,env_dat)
+#   class(test_mod1$model) #determine the class:
+#   # [1] "MaxEnt"
+#   # attr(,"package")
+#   # [1] "dismo"
+# }
 
 ```
 
@@ -206,7 +229,7 @@ if(model_to_run == "maxent" & run_test){
 
 Fit a GLM using `glm()`
 
-```{r}
+```{r fit_glm_function}
 #from https://win-vector.com/2014/05/30/trimming-the-fat-from-glm-models-in-r/
 clean_model = function(cm) {
   cm$y = c()
@@ -239,18 +262,19 @@ fit_glm <- function(folded_data,fold_i){
                                   mod, tr = seq(0, 1, length.out = 200))
   mod_summary <- summary(mod)
   
-  mod <- clean_model(mod)
+  #currently not cleaning the model
+  #mod <- clean_model(mod)
   
   #return the model + evaludation
   return(list(model = mod,evaluation = evaluation,summary = mod_summary))
 }
 
-if(model_to_run == "glm" & run_test){
-  #test the function
-  test_mod2 <- fit_glm(folded_data,1)
-  class(test_mod2$model) #class:
-  # [1] "glm" "lm"
-}
+# if(model_to_run == "glm" & run_test){
+#   #test the function
+#   test_mod2 <- fit_glm(folded_data,1)
+#   class(test_mod2$model) #class:
+#   # [1] "glm" "lm"
+# }
 
 ```
 
@@ -259,7 +283,7 @@ if(model_to_run == "glm" & run_test){
 
 Fit a random forest with `randomForest` from package `randomForest`
 
-```{r}
+```{r fit_rf_function}
 
 fit_rf <- function(folded_data,fold_i){
   weights <- determine_weights(folded_data,fold_i)
@@ -284,19 +308,19 @@ fit_rf <- function(folded_data,fold_i){
   return(list(model = mod,evaluation = evaluation,summary = summary(mod)))
 }
 
-if(model_to_run == "rf" & run_test){
-  #test the function
-  test_mod3 <- fit_rf(folded_data,1)
-  class(test_mod3$model)
-  # [1] "randomForest"
-}
+# if(model_to_run == "rf" & run_test){
+#   #test the function
+#   test_mod3 <- fit_rf(folded_data,1)
+#   class(test_mod3$model)
+#   # [1] "randomForest"
+# }
 ```
 
 #### GAM
 
 Fit a GAM using `gam` from package `mgcv`
 
-```{r}
+```{r fit_gam_function}
 
 fit_gam <- function(folded_data,fold_i,knots_gam = -1){
   train_data <- folded_data %>% filter(fold != fold_i) %>% dplyr::select(-lat,-lon,-fold,-ID)
@@ -342,12 +366,12 @@ fit_gam <- function(folded_data,fold_i,knots_gam = -1){
   return(list(model = mod,evaluation = evaluation,summary = summary(mod)))
 }
 
-if(model_to_run == "gam" & run_test){
-  #test the function
-  test_mod4 <- fit_gam(folded_data,1)
-  class(test_mod4$model)
-  # [1] "gam" "glm" "lm"
-}
+# if(model_to_run == "gam" & run_test){
+#   #test the function
+#   test_mod4 <- fit_gam(folded_data,1)
+#   class(test_mod4$model)
+#   # [1] "gam" "glm" "lm"
+# }
 
 
 ```
@@ -357,29 +381,17 @@ if(model_to_run == "gam" & run_test){
 
 This is where we apply the fitted models to predict across the entire environmental raster. We do this across each of the 10 bootstrapped models and get a mean prediction value. We also calculate the standard deviation of the 10 predictions which is part of the DECIDE score.
 
-```{r}
-if(run_test){
-  #crop the raster for testing
-  smaller_extent <- extent(c(370000, 380000, 160000, 170000))
-  env_dat <- crop(x = env_dat, y = smaller_extent)
-}
-
-```
 
 First define a function for making the predictions. It takes a list of the same type of model but fitted from each bootstrap of the data and the environmental raster `env_data`.
 
-```{r}
+```{r define_prediction_function}
 #model list is a list of 10 models fitted from each bootstrap
 get_predictions <- function(model_list,env_data) {
-  print(model_list[[1]]$model)
-  
   #get the model class
   model_class <- class(model_list[[1]]$model)
   
   # number of bootstraps that were run
   k = length(model_list)
-  
-  print(model_class)
   
   # choose the type and index for predict function
   if("glm" %in% model_class){ #"glm" is in the model class for both gams and glms
@@ -394,13 +406,11 @@ get_predictions <- function(model_list,env_data) {
   }
   
   ## bootstrapped models
-  print(paste0('#####   predicting from bootstrapped models   #####')) 
   
   # predict from each of the bootstrapped models and stack them together
   boots_out <- raster::stack(lapply(model_list, FUN = function(x) {predict(env_data, x$model, type=type, index=index)} ))
   
   ## quantiles
-  print(paste0('#####   getting standard deviation   #####'))
   mean_preds <- calc(boots_out, fun = mean, na.rm = T) # the mean
   rnge <- calc(boots_out, fun = function(x) {sd(x, na.rm = TRUE)}) # get the standard deviation
   # rnge <- quant_preds[[2]]-quant_preds[[1]] # get the range of max - min
@@ -419,7 +429,7 @@ if(F){
 
 Until this point we haven't run any models, we have just defined functions for running them. This is where we fit the models and run predictions. We use `lapply` to run the model on each fold of the data at the same time.
 
-```{r}
+```{r fit_models_and_predict}
 
 folds_list <- as.list(1:n_folds)
 
@@ -454,10 +464,28 @@ if(model_to_run == "glm"){
 predictions <- get_predictions(mods,env_dat)
 
 #checking model size
-# object.size(mods) %>% format(units = "Mb")
-# object.size(predictions) %>% format(units = "Mb")
+object.size(mods) %>% format(units = "Mb")
+object.size(predictions) %>% format(units = "Mb")
 
 ```
+
+Model outputs for the first model
+
+```{r print_model_outputs}
+#the model
+#mods[[1]]$mod
+
+#the evaluation by dismo
+mods[[1]]$evaluation
+
+#the model summary
+mods[[1]]$summary
+
+#model AUCs
+sapply(mods, function(x) {slot(x$evaluation, "auc")})
+```
+
+### Save outputs
 
 Now that we've run the models we need to save the outputs.
 
@@ -470,7 +498,7 @@ For each model run for each species we end up with 4 files
  * `mean_AUC_[SPECIES].rds` is the mean AUC for that model/species combo stored as a single numeric value
  * `models_[SPECIES].rds` contains one of the models, the AUCs from each model, the mean AUC across all models (again) and the summaries for all models.
  
-```{r}
+```{r save_outputs}
 
 #save rasters
 #write prediction
@@ -517,57 +545,57 @@ saveRDS(mean_AUC, file = paste0("data/derived_data/model_outputs_by_species/",mo
 
 ### Diagnostic plots
 
-```{r}
-
+```{r model_disgnostics1}
 if(plot_diagnostics){
-  #generic diagnostic plot
   plot(mods[[1]]$model)
-  
-  #mean prediction versus sd
-  plot(x = values(predictions$mean_predictions),y = values(predictions$quant_range))
-  
-  #cap big values
-  values(predictions$quant_range)[values(predictions$quant_range)>0.0025] <- 0.0025
-  
-  #compare predicted vs actual (and pseudo)
-  test <- data.frame(folded_data[,c("lon","lat","val")],prediction =terra::extract(x = predictions$mean_predictions, y = folded_data[,c("lon","lat")])) %>% na.omit(test)
-  test %>%
-    ggplot(aes(x = val, y = prediction))+
-    geom_point()
-  
-  #turn raster into a data frame for ggplotting
-  test_spdf <- as(predictions$mean_predictions, "SpatialPixelsDataFrame")
-  test_df <- as.data.frame(test_spdf)
-  colnames(test_df) <- c("value", "x", "y")
-  
-  #plot raster and points
-  test %>%
-    filter(val == 1) %>%
-    ggplot(aes(x = lon,y = lat))+
-    geom_tile(data=test_df, aes(x=x, y=y, fill=value), alpha=1)+
-    scale_fill_gradient(low = "aliceblue",high = "chartreuse3")+
-    geom_point(alpha = 1,shape = 16)+
-    theme_classic()+
-    labs(fill = "Probability of presence",x = "Eastings",y = "Northings")+
-    coord_fixed()
-    
-  
-  #turn raster into a data frame for ggplotting
-  test_spdf <- as(predictions$quant_range, "SpatialPixelsDataFrame")
-  test_df <- as.data.frame(test_spdf)
-  colnames(test_df) <- c("value", "x", "y")
-  
-  #plot raster and points
-  test %>% 
-    filter(val == 1) %>%
-    ggplot(aes(x = lon,y = lat))+
-    geom_tile(data=test_df, aes(x=x, y=y, fill=(log(value)+8.1)/5), alpha=1)+
-    scale_fill_gradient(low = "aliceblue",high = "coral1")+
-    geom_point(alpha = 1,shape = 16)+
-    theme_classic()+
-    labs(fill = "Model Uncertainty",x = "Eastings",y = "Northings")+
-    coord_fixed()
 }
+```
+
+```{r model_diagnostics2}
+
+#mean prediction versus sd
+plot(x = values(predictions$mean_predictions),y = values(predictions$quant_range))
+
+#compare predicted vs actual (and pseudo)
+test <- data.frame(folded_data[,c("lon","lat","val")],prediction =terra::extract(x = predictions$mean_predictions, y = folded_data[,c("lon","lat")])) %>% na.omit(test)
+
+test %>%
+  ggplot(aes(x = val, y = prediction))+
+  geom_point()
+
+#turn raster into a data frame for ggplotting
+test_spdf <- as(predictions$mean_predictions, "SpatialPixelsDataFrame")
+test_df <- as.data.frame(test_spdf)
+colnames(test_df) <- c("value", "x", "y")
+
+#plot raster and points
+test %>%
+  filter(val == 1) %>%
+  ggplot(aes(x = lon,y = lat))+
+  geom_tile(data=test_df, aes(x=x, y=y, fill=value), alpha=1)+
+  scale_fill_gradient(low = "aliceblue",high = "chartreuse3")+
+  geom_point(alpha = 1,shape = 16)+
+  theme_classic()+
+  labs(fill = "Probability of presence",x = "Eastings",y = "Northings")+
+  coord_fixed()
+  
+
+#turn raster into a data frame for ggplotting
+test_spdf <- as(predictions$quant_range, "SpatialPixelsDataFrame")
+test_df <- as.data.frame(test_spdf)
+colnames(test_df) <- c("value", "x", "y")
+
+#plot raster and points
+test %>% 
+  filter(val == 1) %>%
+  ggplot(aes(x = lon,y = lat))+
+  geom_tile(data=test_df, aes(x=x, y=y, fill=value, alpha=1))+
+  scale_fill_gradient(low = "aliceblue",high = "coral1")+
+  geom_point(alpha = 1,shape = 16)+
+  theme_classic()+
+  labs(fill = "Model Uncertainty",x = "Eastings",y = "Northings")+
+  coord_fixed()
+
 
 ```
 

@@ -139,6 +139,23 @@ sbatch useful commands:
 
 ### Transfer of data
 
+This is where our journey in this repository as the data is handed over
+to other file locations for use in other services.
+
+#### Transfer to object store
+
+Transfer all ensemble models by species and
+
+#### Transfer to appdev SAN folder
+
+Transfer the species richness raster and model uncertainty layer to the
+app file system for use in the DECIDE Tool and the corresponding
+
+### Exploring data
+
+Create a basic shiny app with a map for loading rasters from objectstore
+and
+
 ## File structure
 
 Generated with `fs::dir_tree()`
