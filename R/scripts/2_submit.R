@@ -54,6 +54,11 @@ trigger_job <- function(n_folds,species_name,model_to_run,plot_diagnostics = F,r
     run_test = run_test
   )
   
+  #if we're in a slurm folder then set the working directory to the main project directory by going up a folder
+  if(grepl("slurm",getwd())){
+    set_wd("../")
+  }
+  
   #create a species directory if it doesn't already exist
   if (!dir.exists(paste0("docs/models/",species_name))){
     dir.create(paste0("docs/models/",species_name))
@@ -82,7 +87,8 @@ slurm_apply(f = trigger_job,
                                  time = as.character(time),
                                  mem = mem_req),
             submit = F,
-            rscript_path = ""
+            rscript_path = "",
+            sh_template = "R/scripts/sh_template.sh"
             )
 
 
