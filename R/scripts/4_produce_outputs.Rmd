@@ -1,6 +1,6 @@
 ---
 title: "Producing outputs"
-author: "Simon Rolph"
+author: "UK Centre for Ecology and Hydrology - DECIDE"
 output: html_document
 ---
 

@@ -63,7 +63,7 @@ For each model run for each species we end up with 4 files
  * `models_[SPECIES].rds` contains one of the models, the AUCs from each model, the mean AUC across all models (again) and the summaries for all models.
 
 
-### Combining models for each species to produce ensemble model
+### Combining models for each species to produce ensemble model for each species
 
 `R/scripts/3_combine_SDMs.Rmd`
 

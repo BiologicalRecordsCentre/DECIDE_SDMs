@@ -1,6 +1,6 @@
 ---
-title: "Compile SDM outputs"
-author: "Simon Rolph"
+title: "Compile ensemble SDM outputs"
+author: "UK Centre for Ecology and Hydrology - DECIDE"
 output: html_document
 ---
 
