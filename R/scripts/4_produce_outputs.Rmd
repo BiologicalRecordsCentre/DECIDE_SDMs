@@ -19,10 +19,78 @@ library(dplyr)
 library(raster)
 ```
 
-### Parameters
+### Parameters and file locations
 
 ```{r}
-group_to_process <- "butterfly" #day_flying_moth
+#what group to build the seasonal decide score for
+group_to_process <- "butterfly" 
+group_to_process <- "day_flying_moth"
+group_to_process <- "night_flying_moth" 
+
+#are we accessing the SDMs from the objectstore via datalabs or within the project direction (for when running on JASMIN)
+sdm_location <- "datalabs"
+#sdm_location  <- "project"
+
+
+# file locations
+## Set up when the app initialises: firstly we need to point to where the raster files are located for each group
+
+if(sdm_location == "datalabs"){
+  
+  #point to location of all the models
+  data_location <- list(
+      butterfly = "../../../../data-s3/DECIDE/sdm_outputs/butterfly/combined_model_outputs/PA_thinned_10000nAbs_2021_12_08",
+      day_flying_moth = "../../../../data-s3/DECIDE/sdm_outputs/moth/combined_model_outputs/PA_thinned_10000nAbs/mean_score",
+      night_flying_moth = "../../../../data-s3/DECIDE/sdm_outputs/nightflying_moth/combined_model_outputs/PA_thinned_10000nAbs_2021_12_08"
+  )
+  
+  #How are the model output files named? presuming that the file names START with the species name
+  file_name_template <- list(
+      butterfly = list(
+          mean = "_PA_thinned_10000nAbs_2021_12_08_mean_score_weightedmeanensemble.grd",
+          variation = "_PA_thinned_10000nAbs_2021_12_08_mean_score_weightedvariationensemble.grd",
+          auc = "_mean_score_aucOuts.csv"
+      ),
+      day_flying_moth = list(
+          mean = "_PA_thinned_10000nAbs_weightedmeanensemble.grd",
+          variation =  "_PA_thinned_10000nAbs_weightedvariationensemble.grd",
+          auc = "_mean_score_aucOuts.csv"
+      ),
+      night_flying_moth = list(
+          mean = "_PA_thinned_10000nAbs_2021_12_08_mean_score_weightedmeanensemble.grd",
+          variation = "_PA_thinned_10000nAbs_2021_12_08_mean_score_weightedvariationensemble.grd",
+          auc = "_mean_score_aucOuts.csv"
+      )   
+  )
+  
+} else if(sdm_location == "project") {
+  #point to location of all the models
+  data_location <- list(
+      butterfly = "",
+      day_flying_moth = "",
+      night_flying_moth = ""
+  )
+  
+  #How are the model output files named?
+  file_name_template <- list(
+      butterfly = list(
+          mean = "",
+          variation = "",
+          auc = ""
+      ),
+      day_flying_moth = list(
+          mean = "",
+          variation =  "",
+          auc = ""
+      ),
+      night_flying_moth = list(
+          mean = "",
+          variation = "",
+          auc = ""
+      )   
+  )
+}
+
 ```
 
 ### Check files avilability
@@ -34,20 +102,28 @@ Taking the species list defined in `species_list.RDS` then building lists of fil
 species_list <- readRDS("species_list.RDS") %>% 
   filter(group == group_to_process) %>% 
   pull(species) %>%
-  tolower() %>% gsub(" ","_",.)
+  #tolower() %>% 
+  gsub(" ","_",.)
 
 
 #check ensemble models
 #files we want
-prediction_files <- paste0("mean_prediction_",species_list,".gri")
-sd_files <- paste0("bootstrapped_sd_",species_list,".gri")
+if(sdm_location == "datalabs"){
+  prediction_files <- paste0(species_list,file_name_template[[group_to_process]][["mean"]])
+  sd_files <- paste0(species_list,file_name_template[[group_to_process]][["variation"]])
+}
+
+if(sdm_location == "project"){
+  prediction_files <- paste0("mean_prediction_",species_list,".gri")
+  sd_files <- paste0("bootstrapped_sd_",species_list,".gri")
+}
 
 file_check_df <- data.frame(species = species_list,
            prediction_file = prediction_files,
            sd_file = sd_files)
 
 #files we have
-files_available <- list.files("data/derived_data/model_outputs_by_species/ensemble",pattern = ".gri")
+files_available <- list.files(data_location[[group_to_process]],pattern = ".gri")
 
 #check the target files against files that are available and add a new column to the df reporting on this check
 file_check_df$prediction_check <- file_check_df$prediction_file %in% files_available
@@ -66,6 +142,12 @@ file_check_df %>% filter(!prediction_check |!prediction_check) %>% dplyr::select
 prediction_files <- prediction_files[prediction_files %>% grepl(species_to_use,.)]
 sd_files <- sd_files[sd_files %>% grepl(species_to_use,.)]
 
+#for testing, slim down the number of files
+if(F){
+  prediction_files <- prediction_files[1:5]
+  sd_files <- sd_files[1:5]
+}
+
 ```
 
 ### Load files and build rasters
@@ -80,11 +162,11 @@ Load files
 
 ```{r}
 #prediction raster
-prediction_raster <- raster::stack(paste0("data/derived_data/model_outputs_by_species/ensemble/",prediction_files))
+prediction_raster <- raster::stack(paste0(data_location[[group_to_process]],prediction_files))
 names(prediction_raster) <- species_to_use
 
 #sd raster
-sd_raster <- raster::stack(paste0("data/derived_data/model_outputs_by_species/ensemble/",sd_files))
+sd_raster <- raster::stack(paste0(data_location[[group_to_process]],sd_files))
 names(sd_raster) <- species_to_use
 
 ```

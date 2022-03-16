@@ -5,11 +5,16 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE) # always echo
 ```
 
+## Intro
 
-```{r}
+This script generates pseudoabsence (PAs) records to use in fitting statistical models for the SDMs.
+
+These PAs are generated via phenologically aware targetting background approach.
+
+```{r setup}
 #file.path()
 
 # Simon computer
@@ -37,7 +42,9 @@ source("R/functions/cpa.R") #function for generating absences
 
 ```
 
-```{r}
+## Preparing phenology data
+
+```{r phenology}
 #load in the ecological traits data
 #https://catalogue.ceh.ac.uk/documents/5b5a13b6-2304-47e3-9c9d-35237d1232c6
 ecological_traits <- read_csv("data/raw_data/traits/butterfly_moth_ecological_traits.csv", 
@@ -71,10 +78,11 @@ saveRDS(phenology,"data/derived_data/species/phenology.RDS")
 
 ```
 
+## Generating PAs
 
-Generate some test data
+Generate some test data. This is used for smaller scale testing. 
 
-```{r}
+```{r test1}
 if(F){
   #generate pseudo absences
   test_species <- distinct(phenology$scientific_name)[1:50]
@@ -103,17 +111,18 @@ if(F){
 }
 ```
 
-Load real data
-```{r}
-#load in the data (pre-processed)
+Load real data.
+
+```{r load_data}
+#load in the data (pre-processed to remove duplicates etc.)
 butterfly_records <- read_csv("data/derived_data/species/butterfly/records/butterfly_EastNorths_no_duplicates_2021_12_06.csv")
 day_moth_records <- read_csv("data/derived_data/species/day_flying_moth/records/DayFlyingMoths_EastNorths_no_duplicates.csv")
-#night_moth_records <- read_csv()
+night_moth_records <- read_csv("data/derived_data/species/day_flying_moth/records/NightFlyingMoths_EastNorths_no_duplicates_2021_12_06.csv")
 
 # add a new column to differentiate the groups
 butterfly_records$group <- "butterfly"
 day_moth_records$group <- "day_flying_moth"
-#night_moth_records$group <- "night_flying_moth"
+night_moth_records$group <- "night_flying_moth"
 
 #make into one big dataframe
 #select relevant columns ready for cpa function
@@ -155,7 +164,7 @@ pas_meta_data$n_months <-
 
 #in a loop because it was a headache working out how to do this nearly in dplyr
 for (i in 1:nrow(pas_meta_data)){
-  print(i)
+  print(paste0(i/nrow(pas_meta_data)*100,"% complete"))
   species_name <- pas_meta_data$species[i]
   
   # get the months in which the target species is active
@@ -193,7 +202,7 @@ saveRDS(pas_meta_data,"data/derived_data/species/pas_meta_data.RDS")
 
 Generate phenologically-aware targeted pseudo-absences
 
-```{r}
+```{r generate_pas}
 
 #function for generating psuedo absences ("pas")
 #loads data from environment
