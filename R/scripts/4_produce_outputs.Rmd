@@ -216,7 +216,7 @@ toc()
 #looping through richness then uncertainty in the hope that accessing a consistent set of files makes it faster (this might be superstition)
 for(product in c("richness","uncertainty")){
   tic(paste0("Build seasonal ",product))
-  for (i in 1:12){
+  for (i in 11){
     tic(paste0("Build seasonal ",product," -- ",months_lower[i]))
     species <- phenology %>% filter(month_num == i,value) %>% pull(scientific_name) %>% gsub(" ","_",.)
   
@@ -244,14 +244,15 @@ Save files
 richness_tifs <- paste0(richness_output_location,"raster_",c(months_lower,"all_year"),".tif")
 uncertainty_tifs <- paste0(uncertainty_output_location,"raster_",c(months_lower,"all_year"),".tif")
 
-rast(richness_tifs)
-rast(uncertainty_tifs)
+richness_stack <- rast(richness_tifs)
+names(richness_stack) <- c(months_lower,"all_year")
 
+uncertainty_stack <- rast(uncertainty_tifs)
+names(uncertainty_stack) <- c(months_lower,"all_year")
 
 #save
-
-
-
+writeRaster(richness_stack,paste0(richness_output_location,"raster_all_months_richness.grd"),overwrite = T)
+writeRaster(uncertainty_stack,paste0(uncertainty_output_location,"raster_all_months_uncertainty.grd"),overwrite = T)
 
 ```
 
