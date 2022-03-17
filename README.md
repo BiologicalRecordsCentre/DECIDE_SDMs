@@ -38,7 +38,7 @@ of code.
 Currenty data processing is not done here, all using outputs from
 previous repository `DECIDE_WP1`.
 
-### Generating psudeo absences
+### 1. Generating psudeo absences
 
 Here we are using the general background of recording activity to see
 where records have NOT been made of the target species to generate
@@ -56,11 +56,13 @@ Inputs:
 
 Outputs:
 
--   `data/derived_data/species/pas.RDS`
--   `data/derived_data/species/species_list.RDS`
--   `data/derived_data/species/pas_meta_data.RDS`
+-   `data/derived_data/species/pas.RDS` - the pseudoabsences
+-   `data/derived_data/species/species_list.RDS` - a list of species and their 'group' (butterfly, day-flying or night flying moth)
+-   `data/derived_data/species/pas_meta_data.RDS` - some meta data about the psuedoabsences, how many are generated for each species etc.
 
-### Fitting SDMs and making SDM predictions
+### 2. Fitting SDMs and making SDM predictions
+
+This script is the workhorse of the workflow. Here we take the pseudoabsences and presences dervied from the previous script, alongside the environmental data in the environmental raster and fit a variety of models. We then predict across the entire GB raster to get each model's predictions of species' probability of presence. We don't do any combining across models - that's in the next script. The script is set up in an R markdown document which can be run interactively for testing model types. For running the models for real on the JASMIN LOTUS slurm cluster, the jobs are set off using the slurm job submission script, which basically just calls the render function to the R markdown.
 
 Interactive workflow: `R/scripts/2_run_SDMs.Rmd`
 
@@ -92,26 +94,10 @@ For each model run for each species we end up with 4 files
 -   `models_[SPECIES].rds` contains one of the models, the AUCs from
     each model, the mean AUC across all models (again) and the summaries
     for all models.
-
-### Combining models for each species to produce ensemble model
-
-`R/scripts/3_combine_SDMs.Rmd`
-
-Inputs:
-
--   `data/derived_data/model_outputs_by_species`
-
-Outputs
-
--   `data/derived_data/model_outputs_by_species/ensemble`
-
-### Combining to seasonal and all-time DECIDE score model uncertainty component
-
-Inputs
-
--   `data/derived_data/model_outputs_by_species/ensemble`
-
-### Submitting the `submit.R` jobs
+    
+The script also generates a HTML document of the render R Markdown with all the diagnositic plots etc. There are rendered in github friendly markdown format so they can be viewed easily in a web browser through the GitHub website. These documents are saved in the `docs/models` folder.
+    
+#### Submitting the `submit.R` jobs
 
 Log in using
 
@@ -136,6 +122,33 @@ sbatch useful commands:
 
     squeue -u simrol
     top -u simrol
+
+### 3. Combining models for each species to produce ensemble model
+
+This is a realatively simple script which takes all the SDMs for each model type for each species and combines to make a single SDM ensemble prediction for each species (not combining across species yet). The different model types are weighted by AUC.
+
+`R/scripts/3_combine_SDMs.Rmd`
+
+Inputs:
+
+-   `data/derived_data/model_outputs_by_species`
+
+Outputs
+
+-   `data/derived_data/model_outputs_by_species/ensemble`
+
+### 4. Combining to seasonal and all-time DECIDE score model uncertainty component
+
+This script combines the ensemble SDMs for each species. This can be run on datalabs, at least for butterflies. It has not been tested for the many nocturnal moth species - that may take a while. This script is written using the `terra` R package so make use of the efficiency upgrates it has over `raster`.
+
+Inputs
+
+-   `data/derived_data/model_outputs_by_species/ensemble`
+
+Outputs
+
+- `data/derived_data/combined_model_outputs`
+
 
 ### Transfer of data
 
