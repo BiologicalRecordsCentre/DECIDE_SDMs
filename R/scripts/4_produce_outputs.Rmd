@@ -9,6 +9,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #set working directory to the project folder, not the R/scripts folder which it is by default because it's an Rmarkdown doc 
 knitr::opts_knit$set(root.dir = '../../')
+renv::settings$ignored.packages("rJava", persist = FALSE) #rJava needed for running models but not needed at this stage
 ```
 
 
@@ -16,7 +17,10 @@ knitr::opts_knit$set(root.dir = '../../')
 
 ```{r}
 library(dplyr)
-library(raster)
+#library(raster)
+library(terra)
+terraOptions(memfrac = 0.1,verbose = T) # allowing terra to access less memory means it is always reading from file not from memory and seems to be much more reliable
+library(tictoc)
 ```
 
 ### Parameters and file locations
@@ -24,8 +28,8 @@ library(raster)
 ```{r}
 #what group to build the seasonal decide score for
 group_to_process <- "butterfly" 
-group_to_process <- "day_flying_moth"
-group_to_process <- "night_flying_moth" 
+#group_to_process <- "day_flying_moth"
+#group_to_process <- "night_flying_moth" 
 
 #are we accessing the SDMs from the objectstore via datalabs or within the project direction (for when running on JASMIN)
 sdm_location <- "datalabs"
@@ -123,30 +127,37 @@ file_check_df <- data.frame(species = species_list,
            sd_file = sd_files)
 
 #files we have
-files_available <- list.files(data_location[[group_to_process]],pattern = ".gri")
+files_available <- list.files(data_location[[group_to_process]],pattern = ".grd")
 
 #check the target files against files that are available and add a new column to the df reporting on this check
 file_check_df$prediction_check <- file_check_df$prediction_file %in% files_available
 file_check_df$sd_check <- file_check_df$sd_file %in% files_available
 
 #highlight missing species models but continues none-the-less and makes the outputs with whatever species it has predictions for.
-print("Species with predictions:")
+
 species_to_use <- file_check_df %>% filter(prediction_check, prediction_check) %>% dplyr::select(species,prediction_check,sd_check) %>% pull(species)
-species_to_use
+
+print("Species with predictions:")
+#species_to_use
 
 #species with missing predictions
 print("Species with missing predictions:")
 file_check_df %>% filter(!prediction_check |!prediction_check) %>% dplyr::select(species,prediction_check,sd_check)
 
+#file_check_df
+
 #get the filenames we want to use
-prediction_files <- prediction_files[prediction_files %>% grepl(species_to_use,.)]
-sd_files <- sd_files[sd_files %>% grepl(species_to_use,.)]
+file_check_df <- file_check_df %>% filter(sd_check,prediction_check)
+prediction_files <- file_check_df$prediction_file
+sd_files <- file_check_df$sd_file
+species_to_use <- file_check_df$species
 
 #for testing, slim down the number of files
-if(F){
-  prediction_files <- prediction_files[1:5]
-  sd_files <- sd_files[1:5]
-}
+# if(F){
+#   prediction_files <- prediction_files[1:40]
+#   sd_files <- sd_files[1:40]
+#   species_to_use <- species_to_use[1:40]
+# }
 
 ```
 
@@ -158,36 +169,68 @@ Load phenology
 phenology <- readRDS("data/derived_data/species/phenology.RDS")
 ```
 
-Load files
+Load raster layers for each species
+When I say 'load', `terra` isn't actually loading the files into memory but creating a link. You can see this in the `mem_info()` results.
 
 ```{r}
+tic("Load in species rasters from file")
+
 #prediction raster
-prediction_raster <- raster::stack(paste0(data_location[[group_to_process]],prediction_files))
+prediction_raster <- terra::rast(paste0(data_location[[group_to_process]],"/",prediction_files))
 names(prediction_raster) <- species_to_use
+prediction_raster
+mem_info(prediction_raster)
+raster_extent <- ext(prediction_raster[[1]])
 
 #sd raster
-sd_raster <- raster::stack(paste0(data_location[[group_to_process]],sd_files))
+sd_raster <- terra::rast(paste0(data_location[[group_to_process]],"/",sd_files))
 names(sd_raster) <- species_to_use
+sd_raster
+mem_info(sd_raster)
+
+toc()
 
 ```
 
-All-time species richness and uncertainty
+All-time and monthly species richness and uncertainty
 
 ```{r}
+#specify where the files should be saved to
+richness_output_location <- paste0("data/derived_data/combined_model_outputs/",group_to_process,"/species_richness/")
+uncertainty_output_location <- paste0("data/derived_data/combined_model_outputs/",group_to_process,"/model_uncertainty/")
+
+
+#moths in lowercase
+months_lower <- tolower(month.abb)
+
+tic("Build all time richness")
 #build all time richness and model uncertainty layers
-species_richness_all_time <- raster::calc(prediction_raster,sum)
-model_uncertainty_all_time <- raster::calc(sd_raster,mean)
-```
+terra::app(prediction_raster,sum,filename = paste0(richness_output_location,"raster_all_year.tif"),overwrite = T)
+toc()
 
-Monthly species richness and uncertainty
+tic("Build all time uncertainty")
+terra::app(sd_raster,mean,filename =  paste0(uncertainty_output_location,"raster_all_year.tif"),overwrite = T)
+toc()
 
-```{r}
-for (i in 1:12){
-  species <- phenology %>% filter(month_num == i,value) %>% pull(scientific_name) %>% tolower() %>% gsub(" ","_",.)
+#seasonal
+#looping through richness then uncertainty in the hope that accessing a consistent set of files makes it faster (this might be superstition)
+for(product in c("richness","uncertainty")){
+  tic(paste0("Build seasonal ",product))
+  for (i in c(1,4,7)){
+    tic(paste0("Build seasonal ",product," -- ",months_lower[i]))
+    species <- phenology %>% filter(month_num == i,value) %>% pull(scientific_name) %>% gsub(" ","_",.)
   
-  prediction_raster[[names(prediction_raster) %in% species]] %>% raster::calc(sum)
-  sd_raster[[names(sd_raster) %in% species]] %>% raster::calc(mean)
-  
+    if(product == "richness"){
+      prediction_raster[[names(prediction_raster) %in% species]] %>% 
+        terra::app(sum,filename = paste0(richness_output_location,"raster_",months_lower[i],".tif"),overwrite = T)
+    } else {
+      sd_raster[[names(sd_raster) %in% species]] %>% 
+        terra::app(mean, filename = paste0(uncertainty_output_location,"raster_",months_lower[i],".tif"),overwrite = T)
+    }
+    
+    toc()
+  }
+  toc()
 }
 
 
@@ -197,7 +240,10 @@ for (i in 1:12){
 Save files
 
 ```{r}
+#stack
 
+
+#save
 
 
 
