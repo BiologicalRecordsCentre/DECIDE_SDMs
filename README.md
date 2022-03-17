@@ -29,13 +29,14 @@ previous repo that worked on SDMs:
 
 This repository does not deal with the ‘recency of records’ component of
 the DECIDE score as this is now processed dynamically in a different set
-of code.
+of code:
+<https://github.com/BiologicalRecordsCentre/DECIDE-dynamic-dataflow>
 
 ## Workflow
 
 ### Preparing data
 
-Currenty data processing is not done here, all using outputs from
+Currently data processing is not done here, all using outputs from
 previous repository `DECIDE_WP1`.
 
 ### 1. Generating psudeo absences
@@ -57,12 +58,23 @@ Inputs:
 Outputs:
 
 -   `data/derived_data/species/pas.RDS` - the pseudoabsences
--   `data/derived_data/species/species_list.RDS` - a list of species and their 'group' (butterfly, day-flying or night flying moth)
--   `data/derived_data/species/pas_meta_data.RDS` - some meta data about the psuedoabsences, how many are generated for each species etc.
+-   `data/derived_data/species/species_list.RDS` - a list of species and
+    their ‘group’ (butterfly, day-flying or night flying moth)
+-   `data/derived_data/species/pas_meta_data.RDS` - some meta data about
+    the psuedoabsences, how many are generated for each species etc.
 
 ### 2. Fitting SDMs and making SDM predictions
 
-This script is the workhorse of the workflow. Here we take the pseudoabsences and presences dervied from the previous script, alongside the environmental data in the environmental raster and fit a variety of models. We then predict across the entire GB raster to get each model's predictions of species' probability of presence. We don't do any combining across models - that's in the next script. The script is set up in an R markdown document which can be run interactively for testing model types. For running the models for real on the JASMIN LOTUS slurm cluster, the jobs are set off using the slurm job submission script, which basically just calls the render function to the R markdown.
+This script is the workhorse of the workflow. Here we take the
+pseudoabsences and presences dervied from the previous script, alongside
+the environmental data in the environmental raster and fit a variety of
+models. We then predict across the entire GB raster to get each model’s
+predictions of species’ probability of presence. We don’t do any
+combining across models - that’s in the next script. The script is set
+up in an R markdown document which can be run interactively for testing
+model types. For running the models for real on the JASMIN LOTUS slurm
+cluster, the jobs are set off using the slurm job submission script,
+which basically just calls the render function to the R markdown.
 
 Interactive workflow: `R/scripts/2_run_SDMs.Rmd`
 
@@ -94,9 +106,13 @@ For each model run for each species we end up with 4 files
 -   `models_[SPECIES].rds` contains one of the models, the AUCs from
     each model, the mean AUC across all models (again) and the summaries
     for all models.
-    
-The script also generates a HTML document of the render R Markdown with all the diagnositic plots etc. There are rendered in github friendly markdown format so they can be viewed easily in a web browser through the GitHub website. These documents are saved in the `docs/models` folder.
-    
+
+The script also generates a HTML document of the render R Markdown with
+all the diagnositic plots etc. There are rendered in github friendly
+markdown format so they can be viewed easily in a web browser through
+the GitHub website. These documents are saved in the `docs/models`
+folder.
+
 #### Submitting the `submit.R` jobs
 
 Log in using
@@ -125,7 +141,10 @@ sbatch useful commands:
 
 ### 3. Combining models for each species to produce ensemble model
 
-This is a realatively simple script which takes all the SDMs for each model type for each species and combines to make a single SDM ensemble prediction for each species (not combining across species yet). The different model types are weighted by AUC.
+This is a realatively simple script which takes all the SDMs for each
+model type for each species and combines to make a single SDM ensemble
+prediction for each species (not combining across species yet). The
+different model types are weighted by AUC.
 
 `R/scripts/3_combine_SDMs.Rmd`
 
@@ -139,7 +158,11 @@ Outputs
 
 ### 4. Combining to seasonal and all-time DECIDE score model uncertainty component
 
-This script combines the ensemble SDMs for each species. This can be run on datalabs, at least for butterflies. It has not been tested for the many nocturnal moth species - that may take a while. This script is written using the `terra` R package so make use of the efficiency upgrates it has over `raster`.
+This script combines the ensemble SDMs for each species. This can be run
+on datalabs, at least for butterflies. It has not been tested for the
+many nocturnal moth species - that may take a while. This script is
+written using the `terra` R package so make use of the efficiency
+upgrates it has over `raster`.
 
 Inputs
 
@@ -147,8 +170,7 @@ Inputs
 
 Outputs
 
-- `data/derived_data/combined_model_outputs`
-
+-   `data/derived_data/combined_model_outputs`
 
 ### Transfer of data
 
@@ -157,17 +179,28 @@ to other file locations for use in other services.
 
 #### Transfer to object store
 
-Transfer all ensemble models by species and
+Outputs from script 3, all individual models and ensemble models by
+species, are stored on the JASMIN Object Store
+(<https://help.jasmin.ac.uk/article/4847-using-the-jasmin-object-store>).
+These are stored here for permanency alongside a variety of other SDMs
+produced by UKCEH/BRC. The Object Store can be accessed via DataLabs
+which make it easy to explore. See the note at the bottom of
+<https://github.com/TMondain/DECIDE_WP1> about transfer to Object Store.
 
 #### Transfer to appdev SAN folder
 
-Transfer the species richness raster and model uncertainty layer to the
-app file system for use in the DECIDE Tool and the corresponding
+The seasonal species richness and SDM model uncertainty are transferred
+to the SAN app drive. This is for use in the app and to provide the
+model uncertainty component for the DECIDE recording priority layer.
+These files are then processed by scripts running on RStudio connect
+which are being developped here:
+<https://github.com/BiologicalRecordsCentre/DECIDE-dynamic-dataflow>
 
 ### Exploring data
 
-Create a basic shiny app with a map for loading rasters from objectstore
-and
+A basic shiny app for exploring the SDM outputs (located on the Object
+Store) is available on DataLabs:
+<https://datalab.datalabs.ceh.ac.uk/resource/dwptwo/sdmexplorer/>
 
 ## File structure
 
@@ -219,13 +252,9 @@ Generated with `fs::dir_tree()`
     ## |   |   \-- rf
     ## |   \-- species
     ## |       +-- butterfly
-    ## |       |   +-- pseudoabsences
-    ## |       |   |   \-- butterfly_PA_thinned_10000nAbs.rdata
     ## |       |   \-- records
     ## |       |       \-- butterfly_EastNorths_no_duplicates_2021_12_06.csv
     ## |       +-- day_flying_moth
-    ## |       |   +-- pseudoabsences
-    ## |       |   |   \-- moth_PA_thinned_10000nAbs.rdata
     ## |       |   \-- records
     ## |       |       \-- DayFlyingMoths_EastNorths_no_duplicates.csv
     ## |       +-- pas.RDS
