@@ -254,7 +254,27 @@ names(uncertainty_stack) <- c(months_lower,"all_year")
 writeRaster(richness_stack,paste0(richness_output_location,"raster_all_months_richness.grd"),overwrite = T)
 writeRaster(uncertainty_stack,paste0(uncertainty_output_location,"raster_all_months_uncertainty.grd"),overwrite = T)
 
+
+
 ```
+
+Plots etc.
+
+```{r}
+#plot
+plot(richness_stack)
+plot(uncertainty_stack)
+
+smaller_extent <- ext(c(455000,465000,185000,195000)) # Wallingford
+
+richness_stack %>% crop(smaller_extent) %>% draw(range = c(0,25),col= viridisLite::viridis(n = 50) )
+uncertainty_stack %>% crop(smaller_extent) %>% plot(range=c(0,0.015),col= viridisLite::viridis(n = 50))
+
+
+
+```
+
+
 
 
 
