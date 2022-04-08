@@ -1,0 +1,23 @@
+---
+title: "Model Diagnostics Homepage"
+author: "Simon Rolph"
+date: "08/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r,echp =F}
+species <- list.files("models")
+
+#get the files in each folder
+html_files <- lapply(paste0("models/",species),list.files)
+
+files_directory <- data.frame(species = rep(species, times = unlist(lapply(html_files,length))),
+                              files = unlist(html_files))
+
+```
+

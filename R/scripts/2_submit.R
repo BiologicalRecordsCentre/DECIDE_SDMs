@@ -19,6 +19,8 @@ library(ggplot2)
 # queue for lotus
 queue_name = 'long-serial'
 
+date_model_run <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
 # time requirement
 time = '47:59:59'
 
@@ -42,10 +44,11 @@ params <- expand.grid(n_folds = 10,
                       species_name = species_list,
                       model_to_run = models,
                       plot_diagnostics = F,
-                      run_test = F)
+                      run_test = F,
+                      date_model_run = date_model_run)
 
 #wrap the render() function for running the Rmarkdown document in a function. This function can then be used
-trigger_job <- function(n_folds,species_name,model_to_run,plot_diagnostics = F,run_test = F){
+trigger_job <- function(n_folds,species_name,model_to_run,plot_diagnostics = F,run_test = F,date_model_run){
   params_list <- list(
     n_folds = n_folds,
     species_name = species_name,
@@ -65,7 +68,7 @@ trigger_job <- function(n_folds,species_name,model_to_run,plot_diagnostics = F,r
   }
   
   #generate a filename for the rendered output
-  out_file <- paste0(species_name,"_",model_to_run,".html")
+  out_file <- paste0(species_name,"_",model_to_run,"_",date_model_run,".html")
   
   rmarkdown::render("R/scripts/2_run_SDMs.Rmd", 
                     params= params_list,
