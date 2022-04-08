@@ -27,8 +27,8 @@ library(tictoc)
 
 ```{r}
 #what group to build the seasonal decide score for
-group_to_process <- "butterfly" 
-#group_to_process <- "day_flying_moth"
+#group_to_process <- "butterfly" 
+group_to_process <- "day_flying_moth"
 #group_to_process <- "night_flying_moth" 
 
 #are we accessing the SDMs from the objectstore via datalabs or within the project direction (for when running on JASMIN)
@@ -103,11 +103,13 @@ Taking the species list defined in `species_list.RDS` then building lists of fil
 
 ```{r}
 #get species list
-species_list <- readRDS("species_list.RDS") %>% 
+species_list <- readRDS("data/derived_data/species/species_list.RDS") %>% 
   filter(group == group_to_process) %>% 
   pull(species) %>%
   #tolower() %>% 
   gsub(" ","_",.)
+
+phenology <- phenology %>% filter(scientific_name %in% (species_list %>% gsub("_"," ",.)))
 
 
 #check ensemble models
@@ -128,6 +130,7 @@ file_check_df <- data.frame(species = species_list,
 
 #files we have
 files_available <- list.files(data_location[[group_to_process]],pattern = ".grd")
+
 
 #check the target files against files that are available and add a new column to the df reporting on this check
 file_check_df$prediction_check <- file_check_df$prediction_file %in% files_available
@@ -216,16 +219,18 @@ toc()
 #looping through richness then uncertainty in the hope that accessing a consistent set of files makes it faster (this might be superstition)
 for(product in c("richness","uncertainty")){
   tic(paste0("Build seasonal ",product))
-  for (i in 11){
+  for (i in 1:12){
     tic(paste0("Build seasonal ",product," -- ",months_lower[i]))
     species <- phenology %>% filter(month_num == i,value) %>% pull(scientific_name) %>% gsub(" ","_",.)
   
-    if(product == "richness"){
-      prediction_raster[[names(prediction_raster) %in% species]] %>% 
-        terra::app(sum,filename = paste0(richness_output_location,"raster_",months_lower[i],".tif"),overwrite = T)
-    } else {
-      sd_raster[[names(sd_raster) %in% species]] %>% 
-        terra::app(mean, filename = paste0(uncertainty_output_location,"raster_",months_lower[i],".tif"),overwrite = T)
+    if (length(species)!=0){
+      if(product == "richness"){
+        prediction_raster[[names(prediction_raster) %in% species]] %>% 
+          terra::app(.,sum,filename = paste0(richness_output_location,"raster_",months_lower[i],".tif"),overwrite = T)
+      } else {
+        sd_raster[[names(sd_raster) %in% species]] %>% 
+          terra::app(.,mean, filename = paste0(uncertainty_output_location,"raster_",months_lower[i],".tif"),overwrite = T)
+      }
     }
     
     toc()
@@ -267,7 +272,7 @@ plot(uncertainty_stack)
 
 smaller_extent <- ext(c(455000,465000,185000,195000)) # Wallingford
 
-richness_stack %>% crop(smaller_extent) %>% draw(range = c(0,25),col= viridisLite::viridis(n = 50) )
+richness_stack %>% crop(smaller_extent) %>% plot(range = c(0,25),col= viridisLite::viridis(n = 50) )
 uncertainty_stack %>% crop(smaller_extent) %>% plot(range=c(0,0.015),col= viridisLite::viridis(n = 50))
 
 
