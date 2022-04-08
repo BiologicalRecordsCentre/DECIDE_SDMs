@@ -241,14 +241,18 @@ for(product in c("richness","uncertainty")){
 
 ```
 
+### Save rasters
 
-Save files
+Files are saved as `.tif` files in the previous code chunk. This next chunk save files as .grd/.gri files (all layers into one file)
+
+This has been written because the app v0.4.0 and prior used .gri/.grd files whereas going forwards we'll be using .tif files. We no longer use .gri files in the app so this code is no longer essential but is kept in case we do want .gri/.grd files for whatever reason.
 
 ```{r}
-#stack
+#define the file names
 richness_tifs <- paste0(richness_output_location,"raster_",c(months_lower,"all_year"),".tif")
 uncertainty_tifs <- paste0(uncertainty_output_location,"raster_",c(months_lower,"all_year"),".tif")
 
+#load in the files and change the names to be months
 richness_stack <- rast(richness_tifs)
 names(richness_stack) <- c(months_lower,"all_year")
 
@@ -263,7 +267,7 @@ writeRaster(uncertainty_stack,paste0(uncertainty_output_location,"raster_all_mon
 
 ```
 
-Plots etc.
+Diagnostic plotting etc.
 
 ```{r}
 #plot
