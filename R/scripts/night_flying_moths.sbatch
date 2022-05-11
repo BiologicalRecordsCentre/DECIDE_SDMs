@@ -1,6 +1,6 @@
 #!/bin/bash 
 #SBATCH --partition=short-serial 
-#SBATCH --job-name=accessLayerPreProcessing
+#SBATCH --job-name=nightflyingmoths
 #SBATCH -o out/%A_%a.out
 #SBATCH -e err/%A_%a.err
 #SBATCH --time=24:00:00
