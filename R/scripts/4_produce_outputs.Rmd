@@ -26,18 +26,25 @@ library(tictoc)
 ### Parameters and file locations
 
 ```{r}
+phenology <- readRDS("data/derived_data/species/phenology.RDS")
+```
+
+```{r}
 #what group to build the seasonal decide score for
 #group_to_process <- "butterfly" 
 #group_to_process <- "day_flying_moth"
 group_to_process <- "night_flying_moth" 
 
 #are we accessing the SDMs from the objectstore via datalabs or within the project direction (for when running on JASMIN)
-sdm_location <- "datalabs"
+#sdm_location <- "datalabs"
 #sdm_location  <- "project"
+sdm_location <- "JASMIN"
 
 
 # file locations
 ## Set up when the app initialises: firstly we need to point to where the raster files are located for each group
+
+#this should really be set up in a better way
 
 if(sdm_location == "datalabs"){
   
@@ -93,6 +100,31 @@ if(sdm_location == "datalabs"){
           auc = ""
       )   
   )
+} else if(sdm_location == "JASMIN"){
+  data_location <- list(
+      # butterfly = "",
+      # day_flying_moth = "",
+      night_flying_moth = "../../thoval/DECIDE/SDMs/outputs/nightflying_moth/combined_model_outputs/PA_thinned_10000nAbs_2021_12_08"
+  )
+  
+  file_name_template <- list(
+      # butterfly = list(
+      #     mean = "",
+      #     variation = "",
+      #     auc = ""
+      # ),
+      # day_flying_moth = list(
+      #     mean = "",
+      #     variation =  "",
+      #     auc = ""
+      # ),
+      night_flying_moth = list(
+          mean = "_PA_thinned_10000nAbs_2021_12_08_mean_score_weightedmeanensemble.grd",
+          variation = "_PA_thinned_10000nAbs_2021_12_08_mean_score_weightedvariationensemble.grd",
+          auc = "_mean_score_aucOuts.csv"
+      )   
+  )
+  
 }
 
 ```
@@ -167,10 +199,6 @@ species_to_use <- file_check_df$species
 ### Load files and build rasters
 
 Load phenology
-
-```{r}
-phenology <- readRDS("data/derived_data/species/phenology.RDS")
-```
 
 Load raster layers for each species
 When I say 'load', `terra` isn't actually loading the files into memory but creating a link. You can see this in the `mem_info()` results.
