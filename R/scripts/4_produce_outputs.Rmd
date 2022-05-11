@@ -28,8 +28,8 @@ library(tictoc)
 ```{r}
 #what group to build the seasonal decide score for
 #group_to_process <- "butterfly" 
-group_to_process <- "day_flying_moth"
-#group_to_process <- "night_flying_moth" 
+#group_to_process <- "day_flying_moth"
+group_to_process <- "night_flying_moth" 
 
 #are we accessing the SDMs from the objectstore via datalabs or within the project direction (for when running on JASMIN)
 sdm_location <- "datalabs"
@@ -226,10 +226,10 @@ for(product in c("richness","uncertainty")){
     if (length(species)!=0){
       if(product == "richness"){
         prediction_raster[[names(prediction_raster) %in% species]] %>% 
-          terra::app(.,sum,filename = paste0(richness_output_location,"raster_",months_lower[i],".tif"),overwrite = T)
+          terra::app(.,sum,filename = paste0(richness_output_location,group_to_process,"_species_richness_raster_",months_lower[i],".tif"),overwrite = T)
       } else {
         sd_raster[[names(sd_raster) %in% species]] %>% 
-          terra::app(.,mean, filename = paste0(uncertainty_output_location,"raster_",months_lower[i],".tif"),overwrite = T)
+          terra::app(.,mean, filename = paste0(uncertainty_output_location,group_to_process,"_sdm_var_raster_",months_lower[i],".tif"),overwrite = T)
       }
     }
     
